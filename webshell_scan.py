@@ -9,16 +9,11 @@ import platform
 import getpass
 import math
 from collections import Counter
-
- # Global variable
-matched = 0
-cleared = 0
-
-filesToScan = str("")
-regexString = str("")
-foutput = ""
-logcsv = "PathName,FakeName,String,Entropy,Compress,Split,Base64,Base32,HexString,LongString,Size,MD5,Created,Modified,Accessed\n"
-totalFilesScanned = 0
+from io import StringIO
+import gzip
+import base64
+import json
+import socket
 
 # TESTED AND WORKED
 def GetAllFiles(dir_path):
@@ -88,27 +83,32 @@ def EntropyMatches(file_data):
         file_matches["Entropy"] = int(entropy*10)
     return file_matches
 
-# WRITING
+# TESTED AND WORKED, BUT NOT SURE
 def CompressMatches(file_data):
     file_matches = {}
-    if len(f) < 20*1024:
+    if len(file_data) < 20*1024:
         return file_matches
+    compressed = gzip.compress(bytes(file_data, 'utf-8'))
+    raw = gzip.decompress(compressed)
+    ratio = len(compressed) / len(raw)
+    if ratio > 0.74:
+        file_matches["Compress"] = int(ratio * 100)
+    return file_matches
 
-# NOT TESTED
+# TESTED, NEARLY CORRECT =)))
 def SplitMatches(file_data):
     file_matches = {}
     s = "eval|file_put_contents|base64_decode|base64|python_eval|exec|passthru|popen|proc_open|pcntl|assert|system|shell|uncompress|cmd.exe|execute|escapeshellcmd|os.popen|/bin/sh|/bin/bash|create_function|executionpolicybypass"
     split_list = s.split("|")
     result = "|"
     for i in split_list:
-        split = split_list[i]
-        result = result + split[::-1] + "|"
+        result = result + i[::-1] + "|"
     reg = s + result
-    reg = re.replace("_", "\_")
-    reg = re.replace(".", "\.")
-    reg = re.replace("/", "\/")
+    reg = reg.replace("_", "\_")
+    reg = reg.replace(".", "\.")
+    reg = reg.replace("/", "\/")
     r = re.compile(reg)
-    r1 = re.compile("(\'[^\']*\')|(\"[^\"]*\")")
+    r1 = re.compile(r"(?:\'[^\']*\')|(?:\"[^\"]*\")")
     r2 = re.compile("[^\w\/]")
     matches1 = re.findall(r1, file_data)
     s1 = ""
@@ -118,14 +118,18 @@ def SplitMatches(file_data):
     s1 = re.sub(pattern=r2, string=s1, repl="")
     matchesr1 = re.findall(r, s1.lower())
     if len(matchesr1) > 0:
-        count_dict = dict(Counter(matches).items())
+        count_dict = dict(Counter(matchesr1).items())
         file_matches.update(count_dict)
     return file_matches
 
-# NOT TESTED
+# TESTED AND WORKED
 def Base64Matches(file_data):
+    # Correct Input Sample
+    # file_h = open("test_base64.txt", "r")
+    # file_data = file_h.read()
+
     file_matches = {}
-    r3 = re.compile("(\'[^\']*\')|(\"[^\"]*\")")
+    r3 = re.compile(r"(?:\'[^\']*\')|(?:\"[^\"]*\")")
     r4 = re.compile("[^\w\/=+]")
     matches1 = re.findall(r3, file_data)
     s1 = ""
@@ -149,9 +153,10 @@ def Base64Matches(file_data):
                     file_matches[it1] = len(it1)
     return file_matches
 
+# TESTED AND WORKED
 def Base32Matches(file_data):
     file_matches = {}
-    r3 = re.compile("(\'[^\']*\')|(\"[^\"]*\")")
+    r3 = re.compile(r"(?:\'[^\']*\')|(?:\"[^\"]*\")")
     r4 = re.compile("[^\w\/=+]")
     matches1 = re.findall(r3, file_data)
     s1 = ""
@@ -175,35 +180,42 @@ def Base32Matches(file_data):
                     file_matches[it1] = len(it1)
     return file_matches
 
+# TESTED AND WORKED
 def HexStringMatches(file_data):
-    r = re.compile("((\\x[0-9A-Fa-f]{2})+)")
     file_matches = {}
-    matchesr1 = re.findall(r, file_data)
-    if len(matchesr1) > 0:
+    r = re.compile(r"(?:(?:\\x[0-9A-Fa-f]{2})+)")
+    matches = re.findall(r, file_data)
+    if len(matches) > 0:
         count_dict = dict(Counter(matches).items())
         file_matches.update(count_dict)
     return file_matches
 
+# TESTED AND WORKED
 def LongStringMatches(file_data):
     file_matches = {}
     if len(file_data) < 20*1024:
         return file_matches
-    r = re.compile("(\'[^\']*\')|(\"[^\"]*\")")
+    r = re.compile("(?:\'[^\']*\')|(?:\"[^\"]*\")")
     r1 = re.compile("[a-zA-Z0-9\+\/\=]")
     matches = re.findall(r, file_data)
+    matches_result = []
     if len(matches) > 0:
         for it in matches:
             if len(it) < 64:
                 continue
             matchesx = re.findall(r1, it)
-            if len(x) == len(it)-2:
-                continue
-            file_matches[it] = 1 # WRONG!!!
+            for x in matchesx:
+                if len(x) == len(it)-2:
+                    continue
+            matches_result.append(it)
+        count_dict = dict(Counter(matches_result).items())
+        file_matches.update(count_dict)
     return file_matches
 
+# TESTED AND WORKED
 def ProcessMatches(file):
     # Input Sample
-    file = "C:\\Users\\namlh21\\Downloads\\webshell-master\\138shell\\C\\ctt_sh.php.txt"
+    # file = "C:\\Users\\namlh21\\Downloads\\webshell-master\\138shell\\C\\ctt_sh.php.txt"
 
     total_file_matches = {} # a dictionary
     file_matches = {} # dict
@@ -224,9 +236,15 @@ def ProcessMatches(file):
         scan_info = scan_info + "TRUE"
         count = count + 1
     scan_info = scan_info + ","
+    try:
+        file_data = file_handle.read()
+    except:
+        return total_file_matches, file_size, ""
 
-    file_data = file_handle.read()
-    cmtR = re.compile("\/\/.*|\/\*.*?\*\/|[^\\u0000-\\u007f]+")
+    # CONFUSED HERE!!!!!!!!!!!
+    # cmtR = "\/\/.*|\/\*.*?\*\/|[^\u0000-\u007f]+" # RANGE OF UNICODE IN PYTHON ONLY HAVE 1 \, NOT 2
+    cmtR = "[^\u0000-\u007f]+" # TEMPORARY REGEX.
+
     matches = re.findall(pattern=cmtR, string=file_data)
     file_data = re.sub(pattern=cmtR, string=file_data, repl="")
     cmtR = re.compile("[\s\n\r\t]+")
@@ -264,7 +282,7 @@ def ProcessMatches(file):
     file_matches = CompressMatches(file_data)
     if len(file_matches) > 0:
         total_file_matches.update({"Compress": file_matches["Compress"]})
-        scan_info = scan_info + total_file_matches["Compress"]
+        scan_info = scan_info + str(total_file_matches["Compress"])
         count = count + 1
     scan_info = scan_info + ","
 
@@ -272,7 +290,7 @@ def ProcessMatches(file):
     file_matches = SplitMatches(file_data)
     if len(file_matches) > 0:
         total_file_matches.update(file_matches)
-        scan_info = scan_info + len(file_matches)
+        scan_info = scan_info + str(len(file_matches))
         count = count + 1
     scan_info = scan_info + ","
 
@@ -280,7 +298,7 @@ def ProcessMatches(file):
     file_matches = Base64Matches(file_data)
     if len(file_matches) > 0:
         total_file_matches.update(file_matches)
-        scan_info = scan_info + len(file_matches)
+        scan_info = scan_info + str(len(file_matches))
         count = count + 1
     scan_info = scan_info + ","
 
@@ -288,7 +306,7 @@ def ProcessMatches(file):
     file_matches = Base32Matches(file_data)
     if len(file_matches) > 0:
         total_file_matches.update(file_matches)
-        scan_info = scan_info + len(file_matches)
+        scan_info = scan_info + str(len(file_matches))
         count = count + 1
     scan_info = scan_info + ","
 
@@ -296,7 +314,7 @@ def ProcessMatches(file):
     file_matches = HexStringMatches(file_data)
     if len(file_matches) > 0:
         total_file_matches.update(file_matches)
-        scan_info = scan_info + len(file_matches)
+        scan_info = scan_info + str(len(file_matches))
         count = count + 1
     scan_info = scan_info + ","
 
@@ -304,31 +322,65 @@ def ProcessMatches(file):
     file_matches = LongStringMatches(file_data)
     if len(file_matches) > 0:
         total_file_matches.update(file_matches)
-        scan_info = scan_info + len(file_matches)
+        scan_info = scan_info + str(len(file_matches))
         count = count + 1
-    scan_info = scan_info + ","
     csv_log = file + "," + scan_info.replace(" ", "")
     if count > 0:
         return total_file_matches, file_size, csv_log
     file_handle.close()
     return total_file_matches, file_size, ""
 
-def ScanFunc(file_list, root_dir, raw, pnl):
+# TESTED AND WORKED
+def MD5HashFile(file):
+    # Input Sample
+    # file = "C:\\Users\\namlh21\\Downloads\\webshell-master\\138shell\\C\\ctt_sh.php.txt"
+
+    file_handle = open(file, "rb")
+    file_data = file_handle.read()
+    result = hashlib.md5(file_data).hexdigest()
+    return result
+
+# TESTED BUT NOT SURE
+def CompressEncode(file, size):
+    # Input Sample
+    # file = "C:\\Users\\namlh21\\Downloads\\webshell-master\\138shell\\C\\ctt_sh.php.txt"
+
+    file_handle = open(file, "rb")
+    file_data = file_handle.read()
+    compressed = gzip.compress(bytes(file_data))
+    img_base64 = base64.b64encode(compressed)
+    return img_base64
+
+def ScanFunc(file_list, output_dir, scan_dir, raw, pnl, start_time):
+    matched = 0
+    cleared = 0
+    logcsv = "PathName,FakeName,String,Entropy,Compress,Split,Base64,Base32,HexString,LongString,Size,MD5,Created,Modified,Accessed\n"
+    totalFilesScanned = 0
+    user_name = getpass.getuser()
+    homedir = os.path.expanduser("~")
+    hostname = socket.gethostname()
+
+    # Scan file-by-file in file list
     for file in file_list:
+        # Sample
+        # file = "C:\\Users\\namlh21\\Downloads\\webshell-master\\138shell\\C\\ctt_sh.php.txt"
+        
         print(file)
+        totalFilesScanned = totalFilesScanned + 1
         # Process Matches
         file_matches, size, csvlog = ProcessMatches(file)
-        if (len(file_matches) > 0 & size > 0):
+
+        if (len(file_matches) > 0 and size > 0):
             matched = matched + 1
         else:
             cleared = cleared + 1
             continue
         # MD5
         file_hash = MD5HashFile(file)
-        # PNL
-        if pnl == "":
+        # PNL (NOT CHECK)
+        if pnl != "":
             try:
-                db_pnl = open(root_dir + '\database' + pnl + '.txt')
+                db_pnl = open(output_dir + '\database' + pnl + '.txt')
             except:
                 print('PnL database file reading error')
                 return
@@ -340,24 +392,67 @@ def ScanFunc(file_list, root_dir, raw, pnl):
         raw = CompressEncode(file, size)
         # Get created time
         if platform.system() == 'Windows':
-            create_time =  os.path.getctime(file)
-        else:
+            create_time = os.path.getctime(file)
+            create_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(create_time))
+            modify_time = os.path.getmtime(file)
+            modify_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(modify_time))
+            access_time = os.path.getatime(file)
+            access_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(access_time))
+        else: # NOT TESTED
             stat = os.stat(file)
-            try:
-                create_time = stat.st_birthtime
-            except AttributeError:
-                create_time = stat.st_mtime # We're probably on Linux.
+            create_time = stat.st_ctime # We're probably on Linux.
+            modify_time = stat.st_mtime
+            access_time = stat.st_atime
         # Append output to logcsv
-        logcsv.append(csvlog + "," + size + "," + file_hash + "," + create_time + "\n") # miss modified and accessed time
-
-        # JSON later here
-
+        logcsv = logcsv + csvlog + "," + str(size) + "," + file_hash + "," + create_time + "," + modify_time + "," + access_time + "\n"
         
+        # JSON output
+        json_data = {}
+        json_data.update({"filePath": file})
+        json_data.update({"size": str(size)})
+        json_data.update({"md5": file_hash})
+        timestamps = {}
+        timestamps.update({"created": create_time})
+        timestamps.update({"modified": modify_time})
+        timestamps.update({"accessed": access_time})
+        json_data.update({"timestamps": timestamps})
+        json_data.update({"matches": file_matches})
+        json_data.update({"rawContents": str(raw)})
+        json_data_string = json.dumps(json_data)
+        output_json_path = output_dir + "/log.json"
+        output_json_handle = open(output_json_path, "a")
+        output_json_handle.write(json_data_string + "\n")
+        output_json_handle.close()
+    
+    # Write to log.csv
+    output_csv_path = output_dir + "/log.csv"
+    output_csv_handle = open(output_csv_path, "wb")
+    output_csv_handle.write(logcsv.encode())
+    output_csv_handle.close()
 
+    # Append scan info to json
+    stop_time = time.time()
+    scan_time = stop_time - start_time
+    scan_data = {}
+    scan_data.update({"scanned": str(totalFilesScanned)})
+    scan_data.update({"matches": str(matched)})
+    scan_data.update({"noMatches": str(cleared)})
+    scan_data.update({"directory": str(scan_dir)})
+    scan_data.update({"scanDuration": str(scan_time)})
+    system_info = {}
+    system_info.update({"hostname": str(hostname)})
+    system_info.update({"username": user_name})
+    system_info.update({"userHomeDir": homedir})
+    scan_data.update({"systemInfo": system_info})
+    scan_data_string = json.dumps(scan_data)
+    output_json_path = output_dir + "/log.json"
+    output_json_handle = open(output_json_path, "a")
+    output_json_handle.write(scan_data_string + "\n")
+    output_json_handle.close()
 
 
 # Main program
-start_time = str(datetime.datetime.today().strftime('%Y-%m-%d-%H-%M'))
+start_time = time.time()
 
 parser = argparse.ArgumentParser(description='Webshell Scan Program')
 
@@ -378,12 +473,12 @@ parser.add_argument('dir', help='Directory to scan for webshells')
 args = parser.parse_args()
 param = vars(args)
 # list param: regex, size, ext, raw, time, pnl, dir. len=7
-root_dir = param.get('dir')
+scan_dir = param.get('dir')
 regex = param.get('regex')
 size = param.get('size')
 ext = param.get('ext')
 raw = param.get('raw')
-time = param.get('time')
+time_scan = param.get('time')
 pnl = param.get('pnl')
 
 # IMPORTANT!!! ALL REGEX ON THIS PROGRAM NEED TO USE NON-CAPTURING GROUP
@@ -391,10 +486,7 @@ if regex == "":
     regex = r"Filesman|(?:@\$_\[\]=|\$_=@\$_GET|\$_\[\+\"\"\]=)|eval\(\$(?:\w|\d)|Load\(Request\.BinaryRead\(int\.Parse\(Request\.Cookies|Html \= Replace\(Html\, \"\%26raquo\;\"\, \"?\"\)|pinkok|internal class reDuh|c0derz shell|md5 cracker|umer rock|Function CP\(S\,D\)\{sf\=CreateObject\(\"java\"\,\"java\.io\.File|Arguments\=xcmd\.text|asp cmd shell|Maceo|TEXTAREA id\=TEXTAREA1 name\=SqlQuery|CMD Bilgileri|sbusqlmod|php assert\(\$\_POST\[|oWshShellNet\.UserName|PHP C0nsole|rhtools|WinX Shell|system\(\$\_GET\[\'cmd\'|Successfully uploadet|\'Are you sure delete|sbusqlcmd|CFSWITCH EXPRESSION\=\#Form\.chopper|php\\HFile|\"ws\"\+\"cr\"\+\"ipt\.s\"\+\"hell\"|eval\(request\(|string rootkey|uZE Shell|Copyed success\!|InStr\(\"\$rar\$mdb\$zip\$exe\$com\$ico\$\"|Folder dosen\'t exists|Buradan Dosya Upload|echo passthru\(\$\_GET\[\'cmd\'|javascript:Bin\_PostBack|The file you want Downloadable|arguments\=\"/c \#cmd\#\"|cmdshell|AvFBP8k9CDlSP79lDl|AK-74 Security Team Web Shell|cfexecute name \= \"\#Form\.cmd\#\"|execute\(|Gamma Web Shell|System\.Reflection\.Assembly\.Load\(Request\.BinaryRead\(int\.Parse\(Request\.Cookies|fcreateshell|bash to execute a stack overflow|Safe Mode Shell|ASPX Shell|dingen\.php|azrailphp|\$\_POST\[\'sa\']\(\$\_POST\[\'sb\']\)|AspSpy|ntdaddy|\.HitU\. team|National Cracker Crew|eval\(base64\_decode\(\$\_REQUEST\[\'comment\'|Rootshell|geshi\\tsql\.php|tuifei\.asp|GRP WebShell|No Permission :\(|powered by zehir|will be delete all|WebFileManager Browsing|Dive Shell|diez\=server\.urlencode|@eval\(\$\_POST\[\'|ifupload\=\"ItsOk\"|eval\(request\.item|\(eval request\(|wsshn\.username|connect to reDuh|eval\(gzinflate\(base64\_decode|Ru24PostWebShell|ASPXTOOL\"|aspshell|File upload successfully you can download here|eval request\(|if\(is\_uploaded\_file\(\$HTTP|Sub RunSQLCMD|STNC WebShell|doosib|WinExec\(Target\_copy\_of\_cmd|php passthru\(getenv|win\.com cmd\.exe /c cacls\.exe|TUM HAKLARI SAKLIDIR|Created by PowerDream|Then Request\.Files\(0\)\.SaveAs\(Server\.MapPath\(Request|cfmshell|\{ Request\.Files\[0]\.SaveAs\(Server\.MapPath\(Request|\%execute\(request\(\"|php eval\(\$\_POST\[|lama\'s\'hell|RHTOOLS|data\=request\(\"dama\"|digitalapocalypse|hackingway\.tk|\.htaccess stealth web shell|strDat\.IndexOf\(\"EXEC \"|ExecuteGlobal request\(|Deleted file have finished|bin\_filern|CurrentVersionRunBackdoor|Chr\(124\)\.O\.Chr\(124\)|does not have permission to execute CMD\.EXE|G-Security Webshell|system\( \"\./findsock|configwizard|textarea style\=\"width:600\;height:200\" name\=\"cmd\"|ASPShell|repair/sam|BypasS Command eXecute|\%execute\(request\(|arguments\=\"/c \#hotmail|Coded by Loader|Call oS\.Run\(\"win\.com cmd\.exe|DESERTSUN SERVER CRASHER|ASPXSpy|cfparam name\=\"form\.shellpath\"|IIS Spy Using ADSI|p4ssw0rD|WARNING: Failed to daemonise|C0mmand line|phpinfo\(\) function has non-permissible|letaksekarang|Execute Shell Command|DXGLOBALSHIT|IISSpy|execute request\(|Chmod Ok\!|Upload Gagal|awen asp\.net|execute\(request\(\"|oSNet\.ComputerName|aspencodedll\.aspcoding|vbscript\.encode|exec\(|shell\_exec\(|popen\(|system\(|escapeshellcmd|passthru\(|pcntl\_exec|proc\_open|db\_connect|mysql\_query|execl\(|cmd\.exe|os\.popen|ls\ \-la|\/etc\/passwd|\/etc\/hosts|adodb\.connection|sqlcommandquery|shellexecute|oledbcommand|mime\-version|exif\_read\_data\(|gethostbyname\(|create\_function\(|base64\_decode\(|\-executionpolicy\ bypass"
 
 # Get All File
-file_list = GetAllFiles(root_dir)
-#print all the file names
-for name in file_list:
-    print(name)
+file_list = GetAllFiles(scan_dir)
 
 # Check valid regex and ext
 try:
@@ -409,32 +501,9 @@ os_name = platform.node()
 # Get user name
 user_name = getpass.getuser()
 
-file_output = os_name + "_" + start_time
-#os.mkdir(file_output)
+output_dir = os_name + "_" + str(datetime.datetime.today().strftime('%Y-%m-%d-%H-%M'))
+os.mkdir(output_dir)
 
 # ScanFunc
-ScanFunc(file_list, root_dir, raw, pnl)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# param = sys.argv
-# if len(param) == 2:
-#     w = Webshell_scan(param[1])
-# else:
-#     print("Wrong parameter. Exit.")
+ScanFunc(file_list, output_dir, scan_dir, raw, pnl, start_time)
+print("Scan done!")
