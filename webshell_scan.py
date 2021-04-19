@@ -14,20 +14,29 @@ import sys
 import tempfile
 import time
 import zipfile
+import configparser
 from collections import Counter
 from io import StringIO
 from zipfile import ZipFile
-
-# from smb.SMBConnection import SMBConnection
+from smb.SMBConnection import SMBConnection
 
 
 # TESTED AND WORKED
-def GetAllFiles(dir_path):
+def GetAllFiles(dir_path, size, ext):
     if os.path.isdir(dir_path):
         file_list = []
         for root, dirs, files in os.walk(dir_path):
             for file in files:
-                # append the file name to the list
+                file_size = os.path.getsize(root + "/" + file)
+                if file_size > size:
+                    continue
+
+                # ext_list = ext.split("|")
+                # for e in ext_list:
+                #     if e in file:
+                #         append the file name to the list
+                #         file_list.append(os.path.join(root, file))
+                #         break
                 file_list.append(os.path.join(root, file))
         return file_list
     else:
@@ -125,7 +134,7 @@ def SplitMatches(file_data):
     reg = reg.replace("/", "\/")
     r = re.compile(reg)
     r1 = re.compile(r"(?:\'[^\']*\')|(?:\"[^\"]*\")")
-    r2 = re.compile("[^\w\/]")
+    r2 = re.compile(r"[^\w\/]")
     matches1 = re.findall(r1, file_data)
     s1 = ""
     if len(matches1) > 0:
@@ -148,7 +157,7 @@ def Base64Matches(file_data):
 
     file_matches = {}
     r3 = re.compile(r"(?:\'[^\']*\')|(?:\"[^\"]*\")")
-    r4 = re.compile("[^\w\/=+]")
+    r4 = re.compile(r"[^\w\/=+]")
     matches1 = re.findall(r3, file_data)
     s1 = ""
     if len(matches1) > 0:
@@ -178,7 +187,7 @@ def Base64Matches(file_data):
 def Base32Matches(file_data):
     file_matches = {}
     r3 = re.compile(r"(?:\'[^\']*\')|(?:\"[^\"]*\")")
-    r4 = re.compile("[^\w\/=+]")
+    r4 = re.compile(r"[^\w\/=+]")
     matches1 = re.findall(r3, file_data)
     s1 = ""
     if len(matches1) > 0:
@@ -372,7 +381,17 @@ def MD5HashFile(file):
     return result
 
 
-def ScanFunc(file_list, output_dir, scan_dir, pnl, start_time):
+def SHA256HashFile(file):
+    # Input Sample
+    # file = "C:\\Users\\namlh21\\Downloads\\webshell-master\\138shell\\C\\ctt_sh.php.txt"
+
+    file_handle = open(file, "rb")
+    file_data = file_handle.read()
+    result = hashlib.sha256(file_data).hexdigest()
+    return result
+
+
+def ScanFunc(file_list, output_dir, scan_dir, start_time):
     matched = 0
     cleared = 0
     csv_log = "PathName,FakeName,String,Entropy,Compress,Split,Base64,Base32,HexString,LongString,Size,MD5,Created,Modified,Accessed\n"
@@ -398,17 +417,24 @@ def ScanFunc(file_list, output_dir, scan_dir, pnl, start_time):
             continue
         # MD5
         file_hash = MD5HashFile(file)
-        # PNL (NOT CHECK)
-        if pnl != "":
-            try:
-                db_pnl = open(output_dir + '\database' + pnl + '.txt')
-            except:
-                print('PnL database file reading error')
-                return
-            pnl_content = db_pnl.read()
-            if file_hash in pnl_content:
-                print("Already scan")
-                continue
+
+        # SCANNED DATABASE
+        file_sha256 = SHA256HashFile(file)
+        try:
+            db_handle = open("database.txt")
+        except FileNotFoundError:
+            db_handle = open("database.txt", "x")
+        db_handle = open("database.txt", "r")
+        db_content = db_handle.read()
+        db_handle.close()
+        if file_sha256 in db_content:
+            print("File: " + file + ": Already scan")
+            continue
+        else:
+            db_handle = open("database.txt", "a")
+            db_handle.write(file_sha256 + "\n")
+            db_handle.close()
+
         # Get created time
         if platform.system() == 'Windows':
             create_time = os.path.getctime(file)
@@ -466,46 +492,37 @@ def ScanFunc(file_list, output_dir, scan_dir, pnl, start_time):
 
 # Main program
 start_time = time.time()
+print("Webshell Scan Program")
 
-parser = argparse.ArgumentParser(description='Webshell Scan Program')
+try:
+    config_handle = open("config.conf", "r")
+except:
+    print("Cannot find config file. Exit.")
+    exit()
 
-parser.add_argument(
-    '-r', '--regex', help='Override default regex with your own', default="")
-
-parser.add_argument(
-    '-s', '--size', help='Specify max file size to scan (default is 10 MB)', default=10)
-
-parser.add_argument('-e', '--ext', help='Specify extensions to target. Multiple extensions should be passed with pipe separator (asp|aspx|php|cfm). Default is all extensions',
-                    default='\.php|\.asp|\.aspx|\.sh|\.bash|\.zsh|\.csh|\.tsch|\.pl|\.py|\.cgi|\.cfm|\.jsp|\.htaccess|\.ashx|\.vbs|\.ps1|\.war|\.js|\.jar')
-
-parser.add_argument(
-    '-t', '--time', help='Scan all file created or modified after this time <yyyy-mm-dd>', default='2000-01-01')
-
-parser.add_argument('-p', '--pnl', help='Scan for PnL', default="")
-
-parser.add_argument('dir', help='Directory to scan for webshells')
-
-args = parser.parse_args()
-param = vars(args)
-# list param: regex, size, ext, time, pnl, dir. len=7
-scan_dir = param.get('dir')
-regex = param.get('regex')
-size = param.get('size')
-ext = param.get('ext')
-time_scan = param.get('time')
-pnl = param.get('pnl')
+parser = configparser.ConfigParser()
+parser.read("config.conf")
+scan_dir = parser.get("config", "dir")
+crontab = parser.get("config", "crontab")
+size = parser.get("config", "size")
+ext = parser.get("config", "ext")
+if size == 0 or size == "":
+    size = 10*1024*1024
+else:
+    size = int(size) * 1024 * 1024
+if ext == "":
+    ext = ".php|.asp|.aspx|.sh|.bash|.zsh|.csh|.tsch|.pl|.py|.cgi|.cfm|.jsp|.htaccess|.ashx|.vbs|.ps1|.war|.js|.jar"
 
 # IMPORTANT!!! ALL REGEX ON THIS PROGRAM NEED TO USE NON-CAPTURING GROUP
-if regex == "":
-    regex = r"Filesman|(?:@\$_\[\]=|\$_=@\$_GET|\$_\[\+\"\"\]=)|eval\(\$(?:\w|\d)|Load\(Request\.BinaryRead\(int\.Parse\(Request\.Cookies|Html \= Replace\(Html\, \"\%26raquo\;\"\, \"?\"\)|pinkok|internal class reDuh|c0derz shell|md5 cracker|umer rock|Function CP\(S\,D\)\{sf\=CreateObject\(\"java\"\,\"java\.io\.File|Arguments\=xcmd\.text|asp cmd shell|Maceo|TEXTAREA id\=TEXTAREA1 name\=SqlQuery|CMD Bilgileri|sbusqlmod|php assert\(\$\_POST\[|oWshShellNet\.UserName|PHP C0nsole|rhtools|WinX Shell|system\(\$\_GET\[\'cmd\'|Successfully uploadet|\'Are you sure delete|sbusqlcmd|CFSWITCH EXPRESSION\=\#Form\.chopper|php\\HFile|\"ws\"\+\"cr\"\+\"ipt\.s\"\+\"hell\"|eval\(request\(|string rootkey|uZE Shell|Copyed success\!|InStr\(\"\$rar\$mdb\$zip\$exe\$com\$ico\$\"|Folder dosen\'t exists|Buradan Dosya Upload|echo passthru\(\$\_GET\[\'cmd\'|javascript:Bin\_PostBack|The file you want Downloadable|arguments\=\"/c \#cmd\#\"|cmdshell|AvFBP8k9CDlSP79lDl|AK-74 Security Team Web Shell|cfexecute name \= \"\#Form\.cmd\#\"|execute\(|Gamma Web Shell|System\.Reflection\.Assembly\.Load\(Request\.BinaryRead\(int\.Parse\(Request\.Cookies|fcreateshell|bash to execute a stack overflow|Safe Mode Shell|ASPX Shell|dingen\.php|azrailphp|\$\_POST\[\'sa\']\(\$\_POST\[\'sb\']\)|AspSpy|ntdaddy|\.HitU\. team|National Cracker Crew|eval\(base64\_decode\(\$\_REQUEST\[\'comment\'|Rootshell|geshi\\tsql\.php|tuifei\.asp|GRP WebShell|No Permission :\(|powered by zehir|will be delete all|WebFileManager Browsing|Dive Shell|diez\=server\.urlencode|@eval\(\$\_POST\[\'|ifupload\=\"ItsOk\"|eval\(request\.item|\(eval request\(|wsshn\.username|connect to reDuh|eval\(gzinflate\(base64\_decode|Ru24PostWebShell|ASPXTOOL\"|aspshell|File upload successfully you can download here|eval request\(|if\(is\_uploaded\_file\(\$HTTP|Sub RunSQLCMD|STNC WebShell|doosib|WinExec\(Target\_copy\_of\_cmd|php passthru\(getenv|win\.com cmd\.exe /c cacls\.exe|TUM HAKLARI SAKLIDIR|Created by PowerDream|Then Request\.Files\(0\)\.SaveAs\(Server\.MapPath\(Request|cfmshell|\{ Request\.Files\[0]\.SaveAs\(Server\.MapPath\(Request|\%execute\(request\(\"|php eval\(\$\_POST\[|lama\'s\'hell|RHTOOLS|data\=request\(\"dama\"|digitalapocalypse|hackingway\.tk|\.htaccess stealth web shell|strDat\.IndexOf\(\"EXEC \"|ExecuteGlobal request\(|Deleted file have finished|bin\_filern|CurrentVersionRunBackdoor|Chr\(124\)\.O\.Chr\(124\)|does not have permission to execute CMD\.EXE|G-Security Webshell|system\( \"\./findsock|configwizard|textarea style\=\"width:600\;height:200\" name\=\"cmd\"|ASPShell|repair/sam|BypasS Command eXecute|\%execute\(request\(|arguments\=\"/c \#hotmail|Coded by Loader|Call oS\.Run\(\"win\.com cmd\.exe|DESERTSUN SERVER CRASHER|ASPXSpy|cfparam name\=\"form\.shellpath\"|IIS Spy Using ADSI|p4ssw0rD|WARNING: Failed to daemonise|C0mmand line|phpinfo\(\) function has non-permissible|letaksekarang|Execute Shell Command|DXGLOBALSHIT|IISSpy|execute request\(|Chmod Ok\!|Upload Gagal|awen asp\.net|execute\(request\(\"|oSNet\.ComputerName|aspencodedll\.aspcoding|vbscript\.encode|exec\(|shell\_exec\(|popen\(|system\(|escapeshellcmd|passthru\(|pcntl\_exec|proc\_open|db\_connect|mysql\_query|execl\(|cmd\.exe|os\.popen|ls\ \-la|\/etc\/passwd|\/etc\/hosts|adodb\.connection|sqlcommandquery|shellexecute|oledbcommand|mime\-version|exif\_read\_data\(|gethostbyname\(|create\_function\(|base64\_decode\(|\-executionpolicy\ bypass"
+regex = r"Filesman|(?:@\$_\[\]=|\$_=@\$_GET|\$_\[\+\"\"\]=)|eval\(\$(?:\w|\d)|Load\(Request\.BinaryRead\(int\.Parse\(Request\.Cookies|Html \= Replace\(Html\, \"\%26raquo\;\"\, \"?\"\)|pinkok|internal class reDuh|c0derz shell|md5 cracker|umer rock|Function CP\(S\,D\)\{sf\=CreateObject\(\"java\"\,\"java\.io\.File|Arguments\=xcmd\.text|asp cmd shell|Maceo|TEXTAREA id\=TEXTAREA1 name\=SqlQuery|CMD Bilgileri|sbusqlmod|php assert\(\$\_POST\[|oWshShellNet\.UserName|PHP C0nsole|rhtools|WinX Shell|system\(\$\_GET\[\'cmd\'|Successfully uploadet|\'Are you sure delete|sbusqlcmd|CFSWITCH EXPRESSION\=\#Form\.chopper|php\\HFile|\"ws\"\+\"cr\"\+\"ipt\.s\"\+\"hell\"|eval\(request\(|string rootkey|uZE Shell|Copyed success\!|InStr\(\"\$rar\$mdb\$zip\$exe\$com\$ico\$\"|Folder dosen\'t exists|Buradan Dosya Upload|echo passthru\(\$\_GET\[\'cmd\'|javascript:Bin\_PostBack|The file you want Downloadable|arguments\=\"/c \#cmd\#\"|cmdshell|AvFBP8k9CDlSP79lDl|AK-74 Security Team Web Shell|cfexecute name \= \"\#Form\.cmd\#\"|execute\(|Gamma Web Shell|System\.Reflection\.Assembly\.Load\(Request\.BinaryRead\(int\.Parse\(Request\.Cookies|fcreateshell|bash to execute a stack overflow|Safe Mode Shell|ASPX Shell|dingen\.php|azrailphp|\$\_POST\[\'sa\']\(\$\_POST\[\'sb\']\)|AspSpy|ntdaddy|\.HitU\. team|National Cracker Crew|eval\(base64\_decode\(\$\_REQUEST\[\'comment\'|Rootshell|geshi\\tsql\.php|tuifei\.asp|GRP WebShell|No Permission :\(|powered by zehir|will be delete all|WebFileManager Browsing|Dive Shell|diez\=server\.urlencode|@eval\(\$\_POST\[\'|ifupload\=\"ItsOk\"|eval\(request\.item|\(eval request\(|wsshn\.username|connect to reDuh|eval\(gzinflate\(base64\_decode|Ru24PostWebShell|ASPXTOOL\"|aspshell|File upload successfully you can download here|eval request\(|if\(is\_uploaded\_file\(\$HTTP|Sub RunSQLCMD|STNC WebShell|doosib|WinExec\(Target\_copy\_of\_cmd|php passthru\(getenv|win\.com cmd\.exe /c cacls\.exe|TUM HAKLARI SAKLIDIR|Created by PowerDream|Then Request\.Files\(0\)\.SaveAs\(Server\.MapPath\(Request|cfmshell|\{ Request\.Files\[0]\.SaveAs\(Server\.MapPath\(Request|\%execute\(request\(\"|php eval\(\$\_POST\[|lama\'s\'hell|RHTOOLS|data\=request\(\"dama\"|digitalapocalypse|hackingway\.tk|\.htaccess stealth web shell|strDat\.IndexOf\(\"EXEC \"|ExecuteGlobal request\(|Deleted file have finished|bin\_filern|CurrentVersionRunBackdoor|Chr\(124\)\.O\.Chr\(124\)|does not have permission to execute CMD\.EXE|G-Security Webshell|system\( \"\./findsock|configwizard|textarea style\=\"width:600\;height:200\" name\=\"cmd\"|ASPShell|repair/sam|BypasS Command eXecute|\%execute\(request\(|arguments\=\"/c \#hotmail|Coded by Loader|Call oS\.Run\(\"win\.com cmd\.exe|DESERTSUN SERVER CRASHER|ASPXSpy|cfparam name\=\"form\.shellpath\"|IIS Spy Using ADSI|p4ssw0rD|WARNING: Failed to daemonise|C0mmand line|phpinfo\(\) function has non-permissible|letaksekarang|Execute Shell Command|DXGLOBALSHIT|IISSpy|execute request\(|Chmod Ok\!|Upload Gagal|awen asp\.net|execute\(request\(\"|oSNet\.ComputerName|aspencodedll\.aspcoding|vbscript\.encode|exec\(|shell\_exec\(|popen\(|system\(|escapeshellcmd|passthru\(|pcntl\_exec|proc\_open|db\_connect|mysql\_query|execl\(|cmd\.exe|os\.popen|ls\ \-la|\/etc\/passwd|\/etc\/hosts|adodb\.connection|sqlcommandquery|shellexecute|oledbcommand|mime\-version|exif\_read\_data\(|gethostbyname\(|create\_function\(|base64\_decode\(|\-executionpolicy\ bypass"
 
 # Get All File
-file_list = GetAllFiles(scan_dir)
+file_list = GetAllFiles(scan_dir, size, ext)
 
 # Check valid regex and ext
 try:
-    re.compile(param.get('ext'))
-    # re.compile(param.get('regex')) # WHY FAILED?
+    re.compile(ext)
+    re.compile(regex)
 except:
     print('Non valid regex input. Exit')
     exit()
@@ -523,12 +540,26 @@ output_zip = domain_name + "_" + ip_addr + "_" + \
     os.path.basename(scan_dir) + "_" + scan_time + ".zip"
 
 # ScanFunc
-ScanFunc(file_list, output_dir, scan_dir, pnl, start_time)
+ScanFunc(file_list, output_dir, scan_dir, start_time)
 
 # Zip JSON output
-with ZipFile(output_dir + "\\" + output_zip, 'w', compression=zipfile.ZIP_DEFLATED) as zip:
+with ZipFile(output_dir + "/" + output_zip, 'w', compression=zipfile.ZIP_DEFLATED) as zip:
     zip.write(output_dir + "/log.json",
               os.path.basename(output_dir + "/log.json"))
-              
 print("File zip successful.")
+
+# Save file to log server
+
+# if platform.system() == "Windows":
+#     net_folder = r"\\10.111.177.41\Logs$"
+#     output_zip_path = net_folder + "\\" + output_zip
+#     output_zip_handle = open(output_zip_path, "ab")
+#     with open(output_dir + "/" + output_zip, 'rb') as f:
+#         zip_data = f.read()
+#     output_zip_handle.write(zip_data)
+#     output_zip_handle.close()
+# elif platform.system() == "Linux":
+#     # WRITING
+#     exit()
+
 print("Scan done!")
