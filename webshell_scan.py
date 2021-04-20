@@ -92,7 +92,7 @@ def EntropyMatches(file_data):
     file_matches = {}
     entropy = 0.0
     if len(file_data) < 20*1024:
-        return file_matches
+        return file_matches, 0
     file_data = file_data.replace(" ", "")
     for i in range(256):  # Scan all 256 character in ASCII
         count = float(file_data.count(chr(i)))
@@ -102,7 +102,7 @@ def EntropyMatches(file_data):
             entropy = entropy + (-pX * math.log(pX, 2))
     if entropy > 7.4:
         file_matches["Entropy"] = int(entropy*10)
-    return file_matches
+    return file_matches, entropy
 
 # TESTED AND WORKED, BUT NOT SURE
 
@@ -261,7 +261,7 @@ def ProcessMatches(file):
     try:
         file_handle = open(file)
     except:
-        return total_file_matches, 0, ""
+        return total_file_matches, 0, "", 0
 
     file_size = os.stat(file).st_size
     file_name = os.path.basename(file)
@@ -276,7 +276,7 @@ def ProcessMatches(file):
     try:
         file_data = file_handle.read()
     except:
-        return total_file_matches, file_size, ""
+        return total_file_matches, file_size, "", 0
 
     # CONFUSED HERE!!!!!!!!!!!
     # cmtR = "\/\/.*|\/\*.*?\*\/|[^\u0000-\u007f]+" # RANGE OF UNICODE IN PYTHON ONLY HAVE 1 \, NOT 2
@@ -294,11 +294,10 @@ def ProcessMatches(file):
     matches = re.findall(pattern=codeR, string=file_data)
     if len(matches) > 0:
         file_data = ""
-        count_dict = dict(Counter(matches).items())
         for i in matches:
             file_data = file_data + i
     else:
-        return total_file_matches, 0, ""
+        return total_file_matches, 0, "", 0
 
     # String Matches
     file_matches = StringMatches(file_data)
@@ -308,8 +307,8 @@ def ProcessMatches(file):
         count = count + 1
     scan_info = scan_info + ","
 
-    # Entropy Matches
-    file_matches = EntropyMatches(file_data)
+    # Entropy Matches and Calculate Entropy
+    file_matches, entropy = EntropyMatches(file_data)
     if len(file_matches) > 0:
         total_file_matches.update({"Entropy": file_matches["Entropy"]})
         scan_info = scan_info + str(total_file_matches["Entropy"])
@@ -364,9 +363,9 @@ def ProcessMatches(file):
         count = count + 1
     match_log = file + "," + scan_info.replace(" ", "")
     if count > 0:
-        return total_file_matches, file_size, match_log
+        return total_file_matches, file_size, match_log, entropy
     file_handle.close()
-    return total_file_matches, file_size, ""
+    return total_file_matches, file_size, "", entropy
 
 # TESTED AND WORKED
 
@@ -390,11 +389,14 @@ def SHA256HashFile(file):
     result = hashlib.sha256(file_data).hexdigest()
     return result
 
+def write_json(data, filename):
+    with open(filename,'w') as f:
+        json.dump(data, f)
+
 
 def ScanFunc(file_list, output_dir, scan_dir, start_time):
     matched = 0
     cleared = 0
-    csv_log = "PathName,FakeName,String,Entropy,Compress,Split,Base64,Base32,HexString,LongString,Size,MD5,Created,Modified,Accessed\n"
     totalFilesScanned = 0
     user_name = getpass.getuser()
     homedir = os.path.expanduser("~")
@@ -406,34 +408,59 @@ def ScanFunc(file_list, output_dir, scan_dir, start_time):
         # file = "C:\\Users\\namlh21\\Downloads\\webshell-master\\138shell\\C\\ctt_sh.php.txt"
 
         print(file)
-        totalFilesScanned = totalFilesScanned + 1
-        # Process Matches
-        file_matches, size, match_log = ProcessMatches(file)
+        file_name = os.path.basename(file)
 
-        if (len(file_matches) > 0 and size > 0):
-            matched = matched + 1
-        else:
-            cleared = cleared + 1
-            continue
-        # MD5
-        file_hash = MD5HashFile(file)
-
-        # SCANNED DATABASE
+        # Hash of file
+        file_md5 = MD5HashFile(file)
         file_sha256 = SHA256HashFile(file)
+
+        # Process Matches
+        file_matches, size, match_log, entropy = ProcessMatches(file)
+
+        # Process match_log: match_header = "PathName,Extension,String,Entropy,Compress,Split,Base64,Base32,HexString,LongString,Size,MD5,Created,Modified,Accessed\n"
+        match_list = match_log.split(",")
+
+        if len(match_list) != 10:
+            match_list = [""] * 10
+
+        # Scanned database
         try:
-            db_handle = open("database.txt")
+            db_handle = open("database.json")  # EDIT HOW TO OPEN DATABASE HERE
         except FileNotFoundError:
-            db_handle = open("database.txt", "x")
-        db_handle = open("database.txt", "r")
+            db_handle = open("database.json", "a")
+            # Define new json db
+            db_json = {}
+            blacklist = {}
+            whitelist = {}
+            db_json.update({"blacklist": blacklist})
+            db_json.update({"whitelist": whitelist})
+            db_json_string = json.dumps(db_json)
+            db_handle.write(db_json_string)
+
+        db_handle = open("database.json", "r")
         db_content = db_handle.read()
         db_handle.close()
         if file_sha256 in db_content:
             print("File: " + file + ": Already scan")
             continue
         else:
-            db_handle = open("database.txt", "a")
-            db_handle.write(file_sha256 + "\n")
-            db_handle.close()
+            totalFilesScanned = totalFilesScanned + 1
+            if (len(file_matches) > 0 and size > 0):
+                matched = matched + 1
+                db_handle = open("database.json")
+                db_json = json.load(db_handle)
+                blacklist = db_json['blacklist']
+                blacklist.update({file_name: file_sha256})
+                write_json(db_json, "database.json")
+            else:
+                cleared = cleared + 1
+                db_handle = open("database.json")
+                db_json = json.load(db_handle)
+                whitelist = db_json['whitelist']
+                whitelist.update({file_name: file_sha256})
+                write_json(db_json, "database.json")
+                continue
+        db_handle.close()
 
         # Get created time
         if platform.system() == 'Windows':
@@ -449,20 +476,42 @@ def ScanFunc(file_list, output_dir, scan_dir, start_time):
         else:  # NOT TESTED
             stat = os.stat(file)
             create_time = stat.st_ctime  # We're probably on Linux.
+            create_time = time.strftime(
+                '%Y-%m-%d %H:%M:%S', time.localtime(create_time))
             modify_time = stat.st_mtime
+            modify_time = time.strftime(
+                '%Y-%m-%d %H:%M:%S', time.localtime(modify_time))
             access_time = stat.st_atime
+            access_time = time.strftime(
+                '%Y-%m-%d %H:%M:%S', time.localtime(access_time))
 
         # JSON output
         json_data = {}
         json_data.update({"filePath": file})
         json_data.update({"size": str(size)})
-        json_data.update({"md5": file_hash})
+        json_data.update({"md5": file_md5})
+        json_data.update({"sha256": file_sha256})
+
         timestamps = {}
         timestamps.update({"created": create_time})
         timestamps.update({"modified": modify_time})
         timestamps.update({"accessed": access_time})
         json_data.update({"timestamps": timestamps})
+
+        signature = {}
+        signature.update({"extension": match_list[1]})
+        signature.update({"string": match_list[2]})
+        signature.update({"entropy": match_list[3]})
+        signature.update({"compress": match_list[4]})
+        signature.update({"split": match_list[5]})
+        signature.update({"base64": match_list[6]})
+        signature.update({"base32": match_list[7]})
+        signature.update({"hexstring": match_list[8]})
+        signature.update({"longstring": match_list[9]})
+        json_data.update({"signature": signature})
+
         json_data.update({"matches": file_matches})
+        json_data.update({"entropy": entropy})
         json_data_string = json.dumps(json_data)
         output_json_path = output_dir + "/log.json"
         output_json_handle = open(output_json_path, "a")
@@ -550,16 +599,16 @@ print("File zip successful.")
 
 # Save file to log server
 
-# if platform.system() == "Windows":
-#     net_folder = r"\\10.111.177.41\Logs$"
-#     output_zip_path = net_folder + "\\" + output_zip
-#     output_zip_handle = open(output_zip_path, "ab")
-#     with open(output_dir + "/" + output_zip, 'rb') as f:
-#         zip_data = f.read()
-#     output_zip_handle.write(zip_data)
-#     output_zip_handle.close()
-# elif platform.system() == "Linux":
-#     # WRITING
-#     exit()
+if platform.system() == "Windows":
+    net_folder = r"\\10.111.177.41\Logs$"
+    output_zip_path = net_folder + "\\" + output_zip
+    output_zip_handle = open(output_zip_path, "ab")
+    with open(output_dir + "/" + output_zip, 'rb') as f:
+        zip_data = f.read()
+    output_zip_handle.write(zip_data)
+    output_zip_handle.close()
+elif platform.system() == "Linux":
+    # WRITING
+    exit()
 
 print("Scan done!")
