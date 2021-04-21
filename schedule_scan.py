@@ -90,6 +90,7 @@ elif platform.system() == "Windows":
     action = task_def.Actions.Create(TASK_ACTION_EXEC)
     action.ID = 'DO NOTHING'
     action.Path = tool_path + 'webshell_scan.exe'
+    # action.Path = 'calc.exe'
 
     # Set parameters
     task_def.RegistrationInfo.Description = 'Webshell Scan Task'
