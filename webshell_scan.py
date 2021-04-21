@@ -1,4 +1,3 @@
-import argparse
 import base64
 import datetime
 import getpass
@@ -11,14 +10,18 @@ import platform
 import re
 import socket
 import sys
-import tempfile
 import time
 import zipfile
 import configparser
+import psutil
+import threading
+import numpy as np
 from collections import Counter
-from io import StringIO
 from zipfile import ZipFile
-from smb.SMBConnection import SMBConnection
+from multiprocessing.pool import ThreadPool as Pool
+
+
+# from smb.SMBConnection import SMBConnection
 
 
 # TESTED AND WORKED
@@ -258,6 +261,7 @@ def ProcessMatches(file):
     file_matches = {}  # dict
     scan_info = ""
     count = 0
+
     try:
         file_handle = open(file)
     except:
@@ -394,20 +398,18 @@ def write_json(data, filename):
         json.dump(data, f)
 
 
-def ScanFunc(file_list, output_dir, scan_dir, start_time):
-    matched = 0
-    cleared = 0
-    totalFilesScanned = 0
-    user_name = getpass.getuser()
-    homedir = os.path.expanduser("~")
-    hostname = socket.gethostname()
+def ScanFunc(file_list, output_dir, scan_dir, start_time, lock):
+    global matched
+    global cleared
+    global total
 
     # Scan file-by-file in file list
     for file in file_list:
+        if file == None:
+            continue
         # Sample
         # file = "C:\\Users\\namlh21\\Downloads\\webshell-master\\138shell\\C\\ctt_sh.php.txt"
 
-        print(file)
         file_name = os.path.basename(file)
 
         # Hash of file
@@ -424,44 +426,54 @@ def ScanFunc(file_list, output_dir, scan_dir, start_time):
             match_list = [""] * 10
 
         # Scanned database
-        try:
-            db_handle = open("database.json")  # EDIT HOW TO OPEN DATABASE HERE
-        except FileNotFoundError:
-            db_handle = open("database.json", "a")
-            # Define new json db
-            db_json = {}
-            blacklist = {}
-            whitelist = {}
-            db_json.update({"blacklist": blacklist})
-            db_json.update({"whitelist": whitelist})
-            db_json_string = json.dumps(db_json)
-            db_handle.write(db_json_string)
-
+        lock.acquire()
         db_handle = open("database.json", "r")
         db_content = db_handle.read()
         db_handle.close()
+        lock.release()
         if file_sha256 in db_content:
             print("File: " + file + ": Already scan")
             continue
         else:
-            totalFilesScanned = totalFilesScanned + 1
+            print(file)
+            lock.acquire()
+            total = total + 1
+            lock.release()
             if (len(file_matches) > 0 and size > 0):
+                lock.acquire()
                 matched = matched + 1
-                db_handle = open("database.json")
+                lock.release()
+                lock.acquire()
+                db_handle = open("database.json", "r")
                 db_json = json.load(db_handle)
+                db_handle.close()
+                lock.release()
                 blacklist = db_json['blacklist']
                 blacklist.update({file_name: file_sha256})
-                write_json(db_json, "database.json")
+                lock.acquire()
+                db_handle = open("database.json", "w")
+                json.dump(db_json, db_handle)
+                db_handle.close()
+                lock.release()
+
             else:
+                lock.acquire()
                 cleared = cleared + 1
-                db_handle = open("database.json")
+                lock.release()
+                lock.acquire()
+                db_handle = open("database.json", "r")
                 db_json = json.load(db_handle)
+                db_handle.close()
+                lock.release()
                 whitelist = db_json['whitelist']
                 whitelist.update({file_name: file_sha256})
-                write_json(db_json, "database.json")
+                lock.acquire()
+                db_handle = open("database.json", "w")
+                json.dump(db_json, db_handle)
+                db_handle.close()
+                lock.release()
                 continue
-        db_handle.close()
-
+        
         # Get created time
         if platform.system() == 'Windows':
             create_time = os.path.getctime(file)
@@ -473,7 +485,7 @@ def ScanFunc(file_list, output_dir, scan_dir, start_time):
             access_time = os.path.getatime(file)
             access_time = time.strftime(
                 '%Y-%m-%d %H:%M:%S', time.localtime(access_time))
-        else:  # NOT TESTED
+        else:
             stat = os.stat(file)
             create_time = stat.st_ctime  # We're probably on Linux.
             create_time = time.strftime(
@@ -485,7 +497,7 @@ def ScanFunc(file_list, output_dir, scan_dir, start_time):
             access_time = time.strftime(
                 '%Y-%m-%d %H:%M:%S', time.localtime(access_time))
 
-        # JSON output
+        # JSON output (ONLY MATCHED FILE INCLUDE ON LOG.JSON)
         json_data = {}
         json_data.update({"filePath": file})
         json_data.update({"size": str(size)})
@@ -513,31 +525,62 @@ def ScanFunc(file_list, output_dir, scan_dir, start_time):
         json_data.update({"matches": file_matches})
         json_data.update({"entropy": entropy})
         json_data_string = json.dumps(json_data)
+
         output_json_path = output_dir + "/log.json"
+        lock.acquire()
         output_json_handle = open(output_json_path, "a")
         output_json_handle.write(json_data_string + "\n")
         output_json_handle.close()
+        lock.release()
 
-    # Append scan info to json
+    # Write scan debug info to debug.json
     stop_time = time.time()
-    scan_time = stop_time - start_time
+    global total_scan_time
+    total_scan_time = stop_time - start_time
+
+def WriteDebugInfo(total, matched, cleared, scan_dir, scan_time, output_dir):
+    hostname = socket.gethostname()
+    user_name = getpass.getuser()
+    homedir = os.path.expanduser("~")
+    pid = os.getpid()
+    process = psutil.Process(pid)
+    
     scan_data = {}
-    scan_data.update({"scanned": str(totalFilesScanned)})
+    scan_data.update({"scanned": str(total)})
     scan_data.update({"matches": str(matched)})
     scan_data.update({"noMatches": str(cleared)})
     scan_data.update({"directory": str(scan_dir)})
-    scan_data.update({"scanDuration": str(scan_time)})
+
     system_info = {}
+    system_info.update({"cpu_percent": str(process.cpu_percent())})
+    system_info.update({"mem_usage": str(round(float(process.memory_info()[0]/1024),2))}) # in KB
+    system_info.update({"mem_percent": str(process.memory_percent())})
     system_info.update({"hostname": str(hostname)})
     system_info.update({"username": user_name})
     system_info.update({"userHomeDir": homedir})
     scan_data.update({"systemInfo": system_info})
+
+    scan_data.update({"scanDuration": str(scan_time)})
     scan_data_string = json.dumps(scan_data)
-    output_json_path = output_dir + "/log.json"
+    output_json_path = output_dir + "/debug.json"
     output_json_handle = open(output_json_path, "a")
     output_json_handle.write(scan_data_string + "\n")
     output_json_handle.close()
 
+# TESTED AND WORKED
+def SplitList(lst, chunk_numbers):
+    n = math.ceil(len(lst)/chunk_numbers)
+    for x in range(0, len(lst), n):
+        each_chunk = lst[x: n+x]
+        if len(each_chunk) < n:
+            each_chunk = each_chunk + [None for y in range(n-len(each_chunk))]
+        yield each_chunk
+
+# Global variables
+total = 0
+matched = 0
+cleared = 0
+total_scan_time = 0
 
 # Main program
 start_time = time.time()
@@ -588,8 +631,81 @@ os.mkdir(output_dir)
 output_zip = domain_name + "_" + ip_addr + "_" + \
     os.path.basename(scan_dir) + "_" + scan_time + ".zip"
 
-# ScanFunc
-ScanFunc(file_list, output_dir, scan_dir, start_time)
+# Test open db
+try:
+    db_handle = open("database.json") # EDIT HOW TO OPEN DATABASE HERE
+    db_handle.close()  
+except FileNotFoundError:
+    db_handle = open("database.json", "a")
+    # Define new json db
+    db_json = {}
+    blacklist = {}
+    whitelist = {}
+    db_json.update({"blacklist": blacklist})
+    db_json.update({"whitelist": whitelist})
+    db_json_string = json.dumps(db_json)
+    db_handle.write(db_json_string)
+    db_handle.close()
+
+# Multi Threading
+lock = threading.Lock()
+
+# 2 thread
+
+# splited_list = list(SplitList(file_list, chunk_numbers=2))
+# t1 = threading.Thread(target=ScanFunc, args=(splited_list[0], output_dir, scan_dir, start_time, lock))
+# t2 = threading.Thread(target=ScanFunc, args=(splited_list[1], output_dir, scan_dir, start_time, lock))
+# t1.start()
+# t2.start()
+# t1.join()
+# t2.join()
+
+# 4 thread
+
+# splited_list = list(SplitList(file_list, chunk_numbers=4))
+# t1 = threading.Thread(target=ScanFunc, args=(splited_list[0], output_dir, scan_dir, start_time, lock))
+# t2 = threading.Thread(target=ScanFunc, args=(splited_list[1], output_dir, scan_dir, start_time, lock))
+# t3 = threading.Thread(target=ScanFunc, args=(splited_list[2], output_dir, scan_dir, start_time, lock))
+# t4 = threading.Thread(target=ScanFunc, args=(splited_list[3], output_dir, scan_dir, start_time, lock))
+# t1.start()
+# t2.start()
+# t3.start()
+# t4.start()
+# t1.join()
+# t2.join()
+# t3.join()
+# t4.join()
+
+# 8 thread
+
+splited_list = list(SplitList(file_list, chunk_numbers=8))
+t1 = threading.Thread(target=ScanFunc, args=(splited_list[0], output_dir, scan_dir, start_time, lock))
+t2 = threading.Thread(target=ScanFunc, args=(splited_list[1], output_dir, scan_dir, start_time, lock))
+t3 = threading.Thread(target=ScanFunc, args=(splited_list[2], output_dir, scan_dir, start_time, lock))
+t4 = threading.Thread(target=ScanFunc, args=(splited_list[3], output_dir, scan_dir, start_time, lock))
+t5 = threading.Thread(target=ScanFunc, args=(splited_list[4], output_dir, scan_dir, start_time, lock))
+t6 = threading.Thread(target=ScanFunc, args=(splited_list[5], output_dir, scan_dir, start_time, lock))
+t7 = threading.Thread(target=ScanFunc, args=(splited_list[6], output_dir, scan_dir, start_time, lock))
+t8 = threading.Thread(target=ScanFunc, args=(splited_list[7], output_dir, scan_dir, start_time, lock))
+t1.start()
+t2.start()
+t3.start()
+t4.start()
+t5.start()
+t6.start()
+t7.start()
+t8.start()
+t1.join()
+t2.join()
+t3.join()
+t4.join()
+t5.join()
+t6.join()
+t7.join()
+t8.join()
+
+WriteDebugInfo(total, matched, cleared, scan_dir, total_scan_time, output_dir)
+# ScanFunc(file_list, output_dir, scan_dir, start_time)
 
 # Zip JSON output
 with ZipFile(output_dir + "/" + output_zip, 'w', compression=zipfile.ZIP_DEFLATED) as zip:
@@ -599,16 +715,16 @@ print("File zip successful.")
 
 # Save file to log server
 
-if platform.system() == "Windows":
-    net_folder = r"\\10.111.177.41\Logs$"
-    output_zip_path = net_folder + "\\" + output_zip
-    output_zip_handle = open(output_zip_path, "ab")
-    with open(output_dir + "/" + output_zip, 'rb') as f:
-        zip_data = f.read()
-    output_zip_handle.write(zip_data)
-    output_zip_handle.close()
-elif platform.system() == "Linux":
-    # WRITING
-    exit()
+# if platform.system() == "Windows":
+#     net_folder = r"\\10.111.177.41\Logs$"
+#     output_zip_path = net_folder + "\\" + output_zip
+#     output_zip_handle = open(output_zip_path, "ab")
+#     with open(output_dir + "/" + output_zip, 'rb') as f:
+#         zip_data = f.read()
+#     output_zip_handle.write(zip_data)
+#     output_zip_handle.close()
+# elif platform.system() == "Linux":
+#     # WRITING
+#     exit()
 
 print("Scan done!")
