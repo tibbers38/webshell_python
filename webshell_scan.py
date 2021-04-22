@@ -1,4 +1,5 @@
 import base64
+import configparser
 import datetime
 import getpass
 import gzip
@@ -10,18 +11,14 @@ import platform
 import re
 import socket
 import sys
+import threading
 import time
 import zipfile
-import configparser
-import psutil
-import threading
-import numpy as np
 from collections import Counter
 from zipfile import ZipFile
-from multiprocessing.pool import ThreadPool as Pool
-
-
-# from smb.SMBConnection import SMBConnection
+import psutil
+import requests
+from smb.SMBConnection import SMBConnection
 
 
 # TESTED AND WORKED
@@ -33,26 +30,27 @@ def GetAllFiles(dir_path, size, ext):
                 file_size = os.path.getsize(root + "/" + file)
                 if file_size > size:
                     continue
-
-                # ext_list = ext.split("|")
-                # for e in ext_list:
-                #     if e in file:
-                #         append the file name to the list
-                #         file_list.append(os.path.join(root, file))
-                #         break
+                if ext != "":
+                    ext_list = ext.split("|")
+                    for e in ext_list:
+                        if e in file:
+                            # append the file name to the list
+                            file_list.append(os.path.join(root, file))
+                            break
                 file_list.append(os.path.join(root, file))
         return file_list
     else:
         print("Wrong path input. Exit.")
+        exit()
 
 # TESTED AND WORKED
 
 
 def ScanExtension(file_name):
     # Input Sample
-    #file_name = "Ajan.asp.txt"
+    # file_name = "Ajan.asp.txt"
 
-    file_matches = {}  # a dict
+    file_matches = {}
     r1 = "[^a-zA-Z0-9\-\_\.]{2,}"
     r2 = re.compile("\.[a-zA-Z0-9]{2,4}\.")
     r3 = "\.php|\.asp|\.aspx|\.sh|\.bash|\.zsh|\.csh|\.tsch|\.pl|\.py|\.cgi|\.cfm|\.jsp|\.htaccess|\.ashx|\.vbs"
@@ -393,8 +391,9 @@ def SHA256HashFile(file):
     result = hashlib.sha256(file_data).hexdigest()
     return result
 
+
 def write_json(data, filename):
-    with open(filename,'w') as f:
+    with open(filename, 'w') as f:
         json.dump(data, f)
 
 
@@ -426,7 +425,7 @@ def ScanFunc(file_list, output_dir, scan_dir, start_time, lock):
             match_list = [""] * 10
 
         # Scanned database
-        lock.acquire()
+        lock.acquire(timeout=-1)
         db_handle = open("database.json", "r")
         db_content = db_handle.read()
         db_handle.close()
@@ -436,44 +435,42 @@ def ScanFunc(file_list, output_dir, scan_dir, start_time, lock):
             continue
         else:
             print(file)
-            lock.acquire()
+            lock.acquire(timeout=-1)
             total = total + 1
             lock.release()
             if (len(file_matches) > 0 and size > 0):
-                lock.acquire()
+                lock.acquire(timeout=-1)
                 matched = matched + 1
                 lock.release()
-                lock.acquire()
+                
+                lock.acquire(timeout=-1)
                 db_handle = open("database.json", "r")
                 db_json = json.load(db_handle)
                 db_handle.close()
-                lock.release()
                 blacklist = db_json['blacklist']
                 blacklist.update({file_name: file_sha256})
-                lock.acquire()
                 db_handle = open("database.json", "w")
                 json.dump(db_json, db_handle)
                 db_handle.close()
                 lock.release()
 
             else:
-                lock.acquire()
+                lock.acquire(timeout=-1)
                 cleared = cleared + 1
                 lock.release()
-                lock.acquire()
+
+                lock.acquire(timeout=-1)
                 db_handle = open("database.json", "r")
                 db_json = json.load(db_handle)
                 db_handle.close()
-                lock.release()
                 whitelist = db_json['whitelist']
                 whitelist.update({file_name: file_sha256})
-                lock.acquire()
                 db_handle = open("database.json", "w")
                 json.dump(db_json, db_handle)
                 db_handle.close()
                 lock.release()
                 continue
-        
+
         # Get created time
         if platform.system() == 'Windows':
             create_time = os.path.getctime(file)
@@ -527,7 +524,7 @@ def ScanFunc(file_list, output_dir, scan_dir, start_time, lock):
         json_data_string = json.dumps(json_data)
 
         output_json_path = output_dir + "/log.json"
-        lock.acquire()
+        lock.acquire(timeout=-1)
         output_json_handle = open(output_json_path, "a")
         output_json_handle.write(json_data_string + "\n")
         output_json_handle.close()
@@ -538,13 +535,37 @@ def ScanFunc(file_list, output_dir, scan_dir, start_time, lock):
     global total_scan_time
     total_scan_time = stop_time - start_time
 
+
+def GetDebugInfo():
+    global cpu_percent
+    global mem_percent
+    global mem_info
+
+    pid = os.getpid()
+    process = psutil.Process(pid)
+    cpu_percent_l = [0] * 10
+    mem_percent_l = [0] * 10
+    mem_info_l = [0] * 10
+    for i in range(10):
+        cpu_percent_l[i] = process.cpu_percent(
+            interval=0.5) / psutil.cpu_count()
+        mem_percent_l[i] = process.memory_percent()
+        mem_info_l[i] = process.memory_info()[0]/(1024*1024)
+        time.sleep(1)
+    cpu_percent = round(sum(cpu_percent_l) / len(cpu_percent_l), 6)
+    mem_percent = round(sum(mem_percent_l) / len(mem_percent_l), 6)
+    mem_info = round(sum(mem_info_l) / len(mem_info_l), 6)
+
+
 def WriteDebugInfo(total, matched, cleared, scan_dir, scan_time, output_dir):
+    global cpu_percent
+    global mem_percent
+    global mem_info
+
     hostname = socket.gethostname()
     user_name = getpass.getuser()
     homedir = os.path.expanduser("~")
-    pid = os.getpid()
-    process = psutil.Process(pid)
-    
+
     scan_data = {}
     scan_data.update({"scanned": str(total)})
     scan_data.update({"matches": str(matched)})
@@ -552,9 +573,9 @@ def WriteDebugInfo(total, matched, cleared, scan_dir, scan_time, output_dir):
     scan_data.update({"directory": str(scan_dir)})
 
     system_info = {}
-    system_info.update({"cpu_percent": str(process.cpu_percent())})
-    system_info.update({"mem_usage": str(round(float(process.memory_info()[0]/1024),2))}) # in KB
-    system_info.update({"mem_percent": str(process.memory_percent())})
+    system_info.update({"cpu_percent": str(cpu_percent)})
+    system_info.update({"mem_usage": str(mem_info)})  # in KB
+    system_info.update({"mem_percent": str(mem_percent)})
     system_info.update({"hostname": str(hostname)})
     system_info.update({"username": user_name})
     system_info.update({"userHomeDir": homedir})
@@ -568,6 +589,8 @@ def WriteDebugInfo(total, matched, cleared, scan_dir, scan_time, output_dir):
     output_json_handle.close()
 
 # TESTED AND WORKED
+
+
 def SplitList(lst, chunk_numbers):
     n = math.ceil(len(lst)/chunk_numbers)
     for x in range(0, len(lst), n):
@@ -576,155 +599,267 @@ def SplitList(lst, chunk_numbers):
             each_chunk = each_chunk + [None for y in range(n-len(each_chunk))]
         yield each_chunk
 
+
+def WindowsScheduler():
+    try:
+        import win32com.client
+    except ImportError:
+        print('Missing python modules. Exit')
+        exit()
+
+    # Get crontab option
+    parser = configparser.ConfigParser()
+    parser.read("config.conf")
+    try:
+        days_interval = parser.get("config", "days_interval")
+    except:
+        print("No option 'days_interval' in section: 'config'. Exit")
+        exit()
+    
+    # Check default config
+    if days_interval == "":
+        days_interval = 30 # run every 30 days
+
+    # Check valid days_interval format
+    if isinstance(days_interval, int) == False:
+        print("[config] days_interval: is not in valid format. Exit")
+        exit()
+
+    # Connect to Schedule Service
+    scheduler = win32com.client.Dispatch('Schedule.Service')
+    scheduler.Connect()
+    root_folder = scheduler.GetFolder("\\")
+    task_def = scheduler.NewTask(0)
+
+    # Create trigger
+    start_time = datetime.datetime.now()
+    TASK_TRIGGER_TIME = 1
+    trigger = task_def.Triggers.Create(TASK_TRIGGER_TIME)
+    trigger.StartBoundary = start_time.isoformat()
+    repetitionPattern = trigger.Repetition
+    repetitionPattern.Interval = "P" + str(days_interval) + "D"
+
+    # Create action
+    TASK_ACTION_EXEC = 0
+    action = task_def.Actions.Create(TASK_ACTION_EXEC)
+    action.ID = 'DO NOTHING'
+    action.Path = tool_path + '\\calc.exe'
+    # action.Path = 'calc.exe'
+
+    # Set parameters
+    task_def.RegistrationInfo.Description = 'Webshell Scan Task'
+    task_def.Settings.Enabled = True
+
+    # Register task
+    # If task already exists, it will be updated
+    TASK_CREATE_OR_UPDATE = 6
+    TASK_LOGON_NONE = 0
+    root_folder.RegisterTaskDefinition(
+        'Webshell Scan Task',  # Task name
+        task_def,
+        TASK_CREATE_OR_UPDATE,
+        '',  # No user
+        '',  # No password
+        TASK_LOGON_NONE)
+
+
+def LinuxScheduler():
+    try:
+        import crontab
+        from croniter import croniter
+        from crontab import CronTab
+    except ImportError:
+        print('Missing python modules. Exit')
+        exit()
+
+    # Get crontab option
+    parser = configparser.ConfigParser()
+    parser.read("config.conf")
+    try:
+        crontab = parser.get("config", "crontab")
+    except:
+        print("No option 'crontab' in section: 'config'. Exit")
+        exit()
+
+    # Check default config
+    if crontab == "":
+        crontab = "0 0 1 * *" # every first day of month
+
+    # Check valid crontab
+    valid = croniter.is_valid(crontab)
+    if valid == False:
+        print("[config] crontab: is not in valid format. Exit")
+        exit()
+
+    # Write crontab
+    user_name = getpass.getuser()
+    cron = CronTab(user=user_name)
+    is_written = 0
+    for job in cron:
+        if job.comment == "webshell scan":
+            job.setall(crontab)
+            job.command = "python3 " + tool_path + "/webshell_scan.py"
+            is_written = 1
+            cron.write()
+            break
+    if is_written == 0:
+        job = cron.new(command="python3 " + tool_path +
+                       "/webshell_scan.py", comment="webshell scan")
+        job.setall(crontab)
+        cron.write()
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+
 # Global variables
 total = 0
 matched = 0
 cleared = 0
 total_scan_time = 0
+cpu_percent = 0
+mem_percent = 0
+mem_info = 0
 
 # Main program
 start_time = time.time()
 print("Webshell Scan Program")
 
+tool_path = os.getcwd()
+# Open config file
 try:
     config_handle = open("config.conf", "r")
 except:
     print("Cannot find config file. Exit.")
     exit()
 
+# Linux use crontab
+if platform.system() == "Linux":
+    LinuxScheduler()
+
+# Windows use Task Scheduler
+elif platform.system() == "Windows":
+    WindowsScheduler()
+
+else:
+    print('Unsupported OS')
+    exit()
+
 parser = configparser.ConfigParser()
 parser.read("config.conf")
 scan_dir = parser.get("config", "dir")
-crontab = parser.get("config", "crontab")
 size = parser.get("config", "size")
 ext = parser.get("config", "ext")
+
 if size == 0 or size == "":
     size = 10*1024*1024
 else:
     size = int(size) * 1024 * 1024
-if ext == "":
-    ext = ".php|.asp|.aspx|.sh|.bash|.zsh|.csh|.tsch|.pl|.py|.cgi|.cfm|.jsp|.htaccess|.ashx|.vbs|.ps1|.war|.js|.jar"
 
 # IMPORTANT!!! ALL REGEX ON THIS PROGRAM NEED TO USE NON-CAPTURING GROUP
 regex = r"Filesman|(?:@\$_\[\]=|\$_=@\$_GET|\$_\[\+\"\"\]=)|eval\(\$(?:\w|\d)|Load\(Request\.BinaryRead\(int\.Parse\(Request\.Cookies|Html \= Replace\(Html\, \"\%26raquo\;\"\, \"?\"\)|pinkok|internal class reDuh|c0derz shell|md5 cracker|umer rock|Function CP\(S\,D\)\{sf\=CreateObject\(\"java\"\,\"java\.io\.File|Arguments\=xcmd\.text|asp cmd shell|Maceo|TEXTAREA id\=TEXTAREA1 name\=SqlQuery|CMD Bilgileri|sbusqlmod|php assert\(\$\_POST\[|oWshShellNet\.UserName|PHP C0nsole|rhtools|WinX Shell|system\(\$\_GET\[\'cmd\'|Successfully uploadet|\'Are you sure delete|sbusqlcmd|CFSWITCH EXPRESSION\=\#Form\.chopper|php\\HFile|\"ws\"\+\"cr\"\+\"ipt\.s\"\+\"hell\"|eval\(request\(|string rootkey|uZE Shell|Copyed success\!|InStr\(\"\$rar\$mdb\$zip\$exe\$com\$ico\$\"|Folder dosen\'t exists|Buradan Dosya Upload|echo passthru\(\$\_GET\[\'cmd\'|javascript:Bin\_PostBack|The file you want Downloadable|arguments\=\"/c \#cmd\#\"|cmdshell|AvFBP8k9CDlSP79lDl|AK-74 Security Team Web Shell|cfexecute name \= \"\#Form\.cmd\#\"|execute\(|Gamma Web Shell|System\.Reflection\.Assembly\.Load\(Request\.BinaryRead\(int\.Parse\(Request\.Cookies|fcreateshell|bash to execute a stack overflow|Safe Mode Shell|ASPX Shell|dingen\.php|azrailphp|\$\_POST\[\'sa\']\(\$\_POST\[\'sb\']\)|AspSpy|ntdaddy|\.HitU\. team|National Cracker Crew|eval\(base64\_decode\(\$\_REQUEST\[\'comment\'|Rootshell|geshi\\tsql\.php|tuifei\.asp|GRP WebShell|No Permission :\(|powered by zehir|will be delete all|WebFileManager Browsing|Dive Shell|diez\=server\.urlencode|@eval\(\$\_POST\[\'|ifupload\=\"ItsOk\"|eval\(request\.item|\(eval request\(|wsshn\.username|connect to reDuh|eval\(gzinflate\(base64\_decode|Ru24PostWebShell|ASPXTOOL\"|aspshell|File upload successfully you can download here|eval request\(|if\(is\_uploaded\_file\(\$HTTP|Sub RunSQLCMD|STNC WebShell|doosib|WinExec\(Target\_copy\_of\_cmd|php passthru\(getenv|win\.com cmd\.exe /c cacls\.exe|TUM HAKLARI SAKLIDIR|Created by PowerDream|Then Request\.Files\(0\)\.SaveAs\(Server\.MapPath\(Request|cfmshell|\{ Request\.Files\[0]\.SaveAs\(Server\.MapPath\(Request|\%execute\(request\(\"|php eval\(\$\_POST\[|lama\'s\'hell|RHTOOLS|data\=request\(\"dama\"|digitalapocalypse|hackingway\.tk|\.htaccess stealth web shell|strDat\.IndexOf\(\"EXEC \"|ExecuteGlobal request\(|Deleted file have finished|bin\_filern|CurrentVersionRunBackdoor|Chr\(124\)\.O\.Chr\(124\)|does not have permission to execute CMD\.EXE|G-Security Webshell|system\( \"\./findsock|configwizard|textarea style\=\"width:600\;height:200\" name\=\"cmd\"|ASPShell|repair/sam|BypasS Command eXecute|\%execute\(request\(|arguments\=\"/c \#hotmail|Coded by Loader|Call oS\.Run\(\"win\.com cmd\.exe|DESERTSUN SERVER CRASHER|ASPXSpy|cfparam name\=\"form\.shellpath\"|IIS Spy Using ADSI|p4ssw0rD|WARNING: Failed to daemonise|C0mmand line|phpinfo\(\) function has non-permissible|letaksekarang|Execute Shell Command|DXGLOBALSHIT|IISSpy|execute request\(|Chmod Ok\!|Upload Gagal|awen asp\.net|execute\(request\(\"|oSNet\.ComputerName|aspencodedll\.aspcoding|vbscript\.encode|exec\(|shell\_exec\(|popen\(|system\(|escapeshellcmd|passthru\(|pcntl\_exec|proc\_open|db\_connect|mysql\_query|execl\(|cmd\.exe|os\.popen|ls\ \-la|\/etc\/passwd|\/etc\/hosts|adodb\.connection|sqlcommandquery|shellexecute|oledbcommand|mime\-version|exif\_read\_data\(|gethostbyname\(|create\_function\(|base64\_decode\(|\-executionpolicy\ bypass"
-
-# Get All File
-file_list = GetAllFiles(scan_dir, size, ext)
 
 # Check valid regex and ext
 try:
     re.compile(ext)
     re.compile(regex)
 except:
-    print('Non valid regex input. Exit')
+    print('Non valid extension input. Exit')
     exit()
+
+# Get All File
+file_list = GetAllFiles(scan_dir, size, ext)
 
 # Define output
 os_name = platform.node()
 user_name = getpass.getuser()
 domain_name = socket.getfqdn()
 ip_addr = socket.gethostbyname(socket.gethostname())
-scan_time = str(datetime.datetime.today().strftime('%Y-%m-%d-%H-%M'))
+scan_time = str(datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
 
 output_dir = os_name + "_" + scan_time
 os.mkdir(output_dir)
-output_zip = domain_name + "_" + ip_addr + "_" + \
-    os.path.basename(scan_dir) + "_" + scan_time + ".zip"
+output_zip = "(" + domain_name + ")-(" + ip_addr + ")-(" + scan_time + ")-(" + os.path.basename(scan_dir) + ")" + ".zip"
 
 # Test open db
+# EDIT HOW TO OPEN DATABASE HERE
+db_path = parser.get("config", "database")
 try:
-    db_handle = open("database.json") # EDIT HOW TO OPEN DATABASE HERE
-    db_handle.close()  
-except FileNotFoundError:
-    db_handle = open("database.json", "a")
-    # Define new json db
-    db_json = {}
-    blacklist = {}
-    whitelist = {}
-    db_json.update({"blacklist": blacklist})
-    db_json.update({"whitelist": whitelist})
-    db_json_string = json.dumps(db_json)
-    db_handle.write(db_json_string)
-    db_handle.close()
+    r = requests.get(db_path, allow_redirects=True)
+    db_json_string = str(r.content())
+    db_json = json.loads(db_json_string)
+    blacklist = db_json["blacklist"]
+    whitelist = db_json["whitelist"]
+except:  # If can't get web db, open or create local db
+    try:
+        print("Finding local database...")
+        db_handle = open("database.json", "r")
+        db_json_string = db_handle.read()
+        db_json = json.loads(db_json_string)
+        blacklist = db_json["blacklist"]
+        whitelist = db_json["whitelist"]
+        db_handle.close()
+    except:
+        print("Created new local database")
+        db_handle = open("database.json", "a")
+        # Define new json db
+        db_json = {}
+        blacklist = {}
+        whitelist = {}
+        db_json.update({"blacklist": blacklist})
+        db_json.update({"whitelist": whitelist})
+        db_json_string = json.dumps(db_json)
+        db_handle.write(db_json_string)
+        db_handle.close()
 
 # Multi Threading
 lock = threading.Lock()
 
-# 2 thread
+i = psutil.cpu_count()  # NUM OF THREAD BASED ON NUM OF CPU ON SYSTEM
+if i == 1:
+    i = 2
 
-# splited_list = list(SplitList(file_list, chunk_numbers=2))
-# t1 = threading.Thread(target=ScanFunc, args=(splited_list[0], output_dir, scan_dir, start_time, lock))
-# t2 = threading.Thread(target=ScanFunc, args=(splited_list[1], output_dir, scan_dir, start_time, lock))
-# t1.start()
-# t2.start()
-# t1.join()
-# t2.join()
-
-# 4 thread
-
-# splited_list = list(SplitList(file_list, chunk_numbers=4))
-# t1 = threading.Thread(target=ScanFunc, args=(splited_list[0], output_dir, scan_dir, start_time, lock))
-# t2 = threading.Thread(target=ScanFunc, args=(splited_list[1], output_dir, scan_dir, start_time, lock))
-# t3 = threading.Thread(target=ScanFunc, args=(splited_list[2], output_dir, scan_dir, start_time, lock))
-# t4 = threading.Thread(target=ScanFunc, args=(splited_list[3], output_dir, scan_dir, start_time, lock))
-# t1.start()
-# t2.start()
-# t3.start()
-# t4.start()
-# t1.join()
-# t2.join()
-# t3.join()
-# t4.join()
-
-# 8 thread
-
-splited_list = list(SplitList(file_list, chunk_numbers=8))
-t1 = threading.Thread(target=ScanFunc, args=(splited_list[0], output_dir, scan_dir, start_time, lock))
-t2 = threading.Thread(target=ScanFunc, args=(splited_list[1], output_dir, scan_dir, start_time, lock))
-t3 = threading.Thread(target=ScanFunc, args=(splited_list[2], output_dir, scan_dir, start_time, lock))
-t4 = threading.Thread(target=ScanFunc, args=(splited_list[3], output_dir, scan_dir, start_time, lock))
-t5 = threading.Thread(target=ScanFunc, args=(splited_list[4], output_dir, scan_dir, start_time, lock))
-t6 = threading.Thread(target=ScanFunc, args=(splited_list[5], output_dir, scan_dir, start_time, lock))
-t7 = threading.Thread(target=ScanFunc, args=(splited_list[6], output_dir, scan_dir, start_time, lock))
-t8 = threading.Thread(target=ScanFunc, args=(splited_list[7], output_dir, scan_dir, start_time, lock))
-t1.start()
-t2.start()
-t3.start()
-t4.start()
-t5.start()
-t6.start()
-t7.start()
-t8.start()
-t1.join()
-t2.join()
-t3.join()
-t4.join()
-t5.join()
-t6.join()
-t7.join()
-t8.join()
+splited_list = list(SplitList(file_list, chunk_numbers=i-1))
+t = [None] * i
+for j in range(i-1):
+    t[j] = threading.Thread(target=ScanFunc, args=(
+        splited_list[j], output_dir, scan_dir, start_time, lock))
+t[i-1] = threading.Thread(target=GetDebugInfo)
+for j in range(i):
+    t[j].start()
+for j in range(i):
+    t[j].join()
 
 WriteDebugInfo(total, matched, cleared, scan_dir, total_scan_time, output_dir)
-# ScanFunc(file_list, output_dir, scan_dir, start_time)
 
 # Zip JSON output
 with ZipFile(output_dir + "/" + output_zip, 'w', compression=zipfile.ZIP_DEFLATED) as zip:
     zip.write(output_dir + "/log.json",
               os.path.basename(output_dir + "/log.json"))
-print("File zip successful.")
 
 # Save file to log server
+hostname = socket.gethostname()
+local_ip = socket.gethostbyname(hostname)
 
-# if platform.system() == "Windows":
-#     net_folder = r"\\10.111.177.41\Logs$"
-#     output_zip_path = net_folder + "\\" + output_zip
-#     output_zip_handle = open(output_zip_path, "ab")
-#     with open(output_dir + "/" + output_zip, 'rb') as f:
-#         zip_data = f.read()
-#     output_zip_handle.write(zip_data)
-#     output_zip_handle.close()
-# elif platform.system() == "Linux":
-#     # WRITING
-#     exit()
+share_name          = "Logs$"
+user_name           = parser.get("auth", "user_name")
+password            = parser.get("auth", "password")
+local_machine_name  = socket.gethostbyaddr(local_ip)[0]
+server_machine_name = "s-dc1-azure-bk.vingroup.local"      # MUST match correctly
+server_IP           = "10.111.177.41"        # as must this        
 
-print("Scan done!")
+conn = SMBConnection(user_name, password, local_machine_name, server_machine_name, is_direct_tcp=True, use_ntlm_v2 = True, domain="VINGROUP")
+
+try:
+    conn.connect(server_IP, port=445)
+    zip_file = open(output_dir + "/" + output_zip, 'rb')
+    conn.storeFile(share_name, "/" + output_zip, zip_file)
+    zip_file.close()
+    os.remove(output_dir + "/" + output_zip)
+    print("Log .zip file saved in: smb://" + server_IP + "/" + share_name + "/" + output_zip)
+except:
+    print("Log .zip file store in local.")
+
+# Delete local unnecessary file
+if os.path.exists(output_dir + "/log.json"):
+    os.remove(output_dir + "/log.json")
+
