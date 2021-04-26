@@ -21,6 +21,32 @@ import psutil
 import requests
 from smb.SMBConnection import SMBConnection
 
+if platform.system() == "Linux":
+    try:
+        import termios
+        import tty
+    except ImportError:
+        exit()
+
+
+def PressAnyKey():
+    if platform.system() == "Windows":
+        os.system('pause')
+    elif platform.system() == "Linux":
+        print(getchr("Press any key to continue . . ."))
+
+
+def getchr(prompt=''):
+    sys.stdout.write(prompt)
+    sys.stdout.flush()
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        return sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
 
 # TESTED AND WORKED
 def GetAllFiles(dir_list, size, ext):
@@ -49,11 +75,11 @@ def GetAllFiles(dir_list, size, ext):
     file_list_all = []
     if file_list == []:
         print("Wrong path input. Exit.")
+        PressAnyKey()
         exit()
     for i in range(len(dir_list)):
         file_list_all = file_list_all + file_list[i]
     return file_list, file_list_all
-
 
 # TESTED AND WORKED
 
@@ -460,13 +486,13 @@ def write_json(data, filename):
         json.dump(data, f)
 
 
-def ScanFunc(file_list, output_dir, start_time, lock):
+def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock):
     global matched
     global cleared
     global total
 
     # Scan file-by-file in file list
-    for file in file_list:
+    for file in file_list_all:
         if file == None:
             continue
         # Sample
@@ -494,17 +520,23 @@ def ScanFunc(file_list, output_dir, start_time, lock):
         db_content_json = json.loads(db_content)
         db_handle.close()
         lock.release()
-        total = total + 1
+        for i in range(len(scan_dir)):
+            if scan_dir[i] in file:
+                total[i] = total[i] + 1
         if file_sha256 in str(db_content_json['blacklist']):
             print(file + ": Already in database. Matched.")
             lock.acquire()
-            matched = matched + 1
+            for i in range(len(scan_dir)):
+                if scan_dir[i] in file:
+                    matched[i] = matched[i] + 1
             lock.release()
             continue
         elif file_sha256 in str(db_content_json['whitelist']):
             print(file + ": Already in database. Clean.")
             lock.acquire()
-            cleared = cleared + 1
+            for i in range(len(scan_dir)):
+                if scan_dir[i] in file:
+                    cleared[i] = cleared[i] + 1
             lock.release()
             continue
         else:
@@ -513,7 +545,9 @@ def ScanFunc(file_list, output_dir, start_time, lock):
             lock.release()
             if (len(file_matches) > 0 and size > 0):
                 lock.acquire(timeout=-1)
-                matched = matched + 1
+                for i in range(len(scan_dir)):
+                    if scan_dir[i] in file:
+                        matched[i] = matched[i] + 1
                 lock.release()
 
                 lock.acquire(timeout=-1)
@@ -529,7 +563,9 @@ def ScanFunc(file_list, output_dir, start_time, lock):
 
             else:
                 lock.acquire(timeout=-1)
-                cleared = cleared + 1
+                for i in range(len(scan_dir)):
+                    if scan_dir[i] in file:
+                        cleared[i] = cleared[i] + 1
                 lock.release()
 
                 lock.acquire(timeout=-1)
@@ -609,142 +645,6 @@ def ScanFunc(file_list, output_dir, start_time, lock):
     total_scan_time = stop_time - start_time
 
 
-def ScanFuncSingle(file_list, output_dir, start_time, lock):
-    global matched
-    global cleared
-    global total
-
-    # Scan file-by-file in file list
-    # Sample
-    file = "C:\\Users\\namlh21\\Downloads\\WebShell_2\\Php\\devilzShell.php"
-
-    file_name = os.path.basename(file)
-
-    # Hash of file
-    file_md5 = MD5HashFile(file)
-    file_sha256 = SHA256HashFile(file)
-
-    # Process Matches
-    file_matches, size, match_log, entropy = ProcessMatches(file)
-
-    # Process match_log: match_header = "PathName,Extension,String,Entropy,Compress,Split,Base64,Base32,HexString,LongString,Size,MD5,Created,Modified,Accessed\n"
-    match_list = match_log.split(",")
-
-    if len(match_list) != 10:
-        match_list = [""] * 10
-
-    # Scanned database
-    lock.acquire(timeout=-1)
-    db_handle = open("database.json", "r")
-    db_content = db_handle.read()
-    db_handle.close()
-    lock.release()
-    if file_sha256 in db_content:
-        print("File: " + file + ": Already scan")
-        return
-    else:
-        print(file)
-        lock.acquire(timeout=-1)
-        total = total + 1
-        lock.release()
-        if (len(file_matches) > 0 and size > 0):
-            lock.acquire(timeout=-1)
-            matched = matched + 1
-            lock.release()
-
-            lock.acquire(timeout=-1)
-            db_handle = open("database.json", "r")
-            db_json = json.load(db_handle)
-            db_handle.close()
-            blacklist = db_json['blacklist']
-            blacklist.update({file_name: file_sha256})
-            db_handle = open("database.json", "w")
-            json.dump(db_json, db_handle)
-            db_handle.close()
-            lock.release()
-
-        else:
-            lock.acquire(timeout=-1)
-            cleared = cleared + 1
-            lock.release()
-
-            lock.acquire(timeout=-1)
-            db_handle = open("database.json", "r")
-            db_json = json.load(db_handle)
-            db_handle.close()
-            whitelist = db_json['whitelist']
-            whitelist.update({file_name: file_sha256})
-            db_handle = open("database.json", "w")
-            json.dump(db_json, db_handle)
-            db_handle.close()
-            lock.release()
-            return
-
-    # Get created time
-    if platform.system() == 'Windows':
-        create_time = os.path.getctime(file)
-        create_time = time.strftime(
-            '%Y-%m-%d %H:%M:%S', time.localtime(create_time))
-        modify_time = os.path.getmtime(file)
-        modify_time = time.strftime(
-            '%Y-%m-%d %H:%M:%S', time.localtime(modify_time))
-        access_time = os.path.getatime(file)
-        access_time = time.strftime(
-            '%Y-%m-%d %H:%M:%S', time.localtime(access_time))
-    else:
-        stat = os.stat(file)
-        create_time = stat.st_ctime  # We're probably on Linux.
-        create_time = time.strftime(
-            '%Y-%m-%d %H:%M:%S', time.localtime(create_time))
-        modify_time = stat.st_mtime
-        modify_time = time.strftime(
-            '%Y-%m-%d %H:%M:%S', time.localtime(modify_time))
-        access_time = stat.st_atime
-        access_time = time.strftime(
-            '%Y-%m-%d %H:%M:%S', time.localtime(access_time))
-
-    # JSON output (ONLY MATCHED FILE INCLUDE ON LOG.JSON)
-    json_data = {}
-    json_data.update({"filePath": file})
-    json_data.update({"size": str(size)})
-    json_data.update({"md5": file_md5})
-    json_data.update({"sha256": file_sha256})
-
-    timestamps = {}
-    timestamps.update({"created": create_time})
-    timestamps.update({"modified": modify_time})
-    timestamps.update({"accessed": access_time})
-    json_data.update({"timestamps": timestamps})
-
-    signature = {}
-    signature.update({"extension": match_list[1]})
-    signature.update({"string": match_list[2]})
-    signature.update({"entropy": match_list[3]})
-    signature.update({"compress": match_list[4]})
-    signature.update({"split": match_list[5]})
-    signature.update({"base64": match_list[6]})
-    signature.update({"base32": match_list[7]})
-    signature.update({"hexstring": match_list[8]})
-    signature.update({"longstring": match_list[9]})
-    json_data.update({"signature": signature})
-
-    json_data.update({"matches": file_matches})
-    json_data.update({"entropy": entropy})
-    json_data_string = json.dumps(json_data)
-
-    output_json_path = output_dir + "/log.json"
-    lock.acquire(timeout=-1)
-    output_json_handle = open(output_json_path, "a")
-    output_json_handle.write(json_data_string + "\n")
-    output_json_handle.close()
-    lock.release()
-
-    # Write scan debug info to debug.json
-    stop_time = time.time()
-    global total_scan_time
-    total_scan_time = stop_time - start_time
-
-
 def GetDebugInfo():
     global cpu_percent
     global mem_percent
@@ -775,16 +675,38 @@ def WriteDebugInfo(total, matched, cleared, scan_dir, scan_time, output_dir):
     user_name = getpass.getuser()
     homedir = os.path.expanduser("~")
 
-    scan_data = {}
-    scan_data.update({"scanned": str(total)})
-    scan_data.update({"matches": str(matched)})
-    scan_data.update({"noMatches": str(cleared)})
-    scan_data.update({"directory": str(scan_dir)})
+    parser = configparser.ConfigParser()
+    parser.read("config.conf")
+    try:
+        domain = parser.get("config", "domain")
+    except:
+        print("No option 'domain' in section: 'config'. Exit")
+        PressAnyKey()
+        exit()
+    domain = domain.replace(" ", "")
+    domain = domain.split(",")
 
+    scan_data = {}
+    scan_info = []
+    for i in range(len(scan_dir)):
+        scan_info.append({})
+    directory = []
+    for i in range(len(scan_dir)):
+        directory.append({})
+    for i in range(len(scan_info)):
+        scan_info[i].update({"dirPath": str(scan_dir[i])})
+        if len(domain) == len(scan_dir):
+            scan_info[i].update({"domain": str(domain[i])})
+        scan_info[i].update({"scanned": str(total[i])})
+        scan_info[i].update({"matches": str(matched[i])})
+        scan_info[i].update({"noMatches": str(cleared[i])})
+    for i in range(len(directory)):
+        scan_data.update({"dir" + str(i+1): scan_info[i]})
+        # scan_data.update({"scanInfo": directory[i]})
     system_info = {}
-    system_info.update({"cpu_percent": str(cpu_percent)})
-    system_info.update({"mem_usage": str(mem_info)})  # in KB
-    system_info.update({"mem_percent": str(mem_percent)})
+    system_info.update({"cpuPercent": str(cpu_percent)})
+    system_info.update({"memUsage": str(mem_info)})  # in KB
+    system_info.update({"memPercent": str(mem_percent)})
     system_info.update({"hostname": str(hostname)})
     system_info.update({"username": user_name})
     system_info.update({"userHomeDir": homedir})
@@ -814,15 +736,17 @@ def WindowsScheduler():
         import win32com.client
     except ImportError:
         print('Missing python modules. Exit')
+        PressAnyKey()
         exit()
 
-    # Get crontab option
+    # Get days_interval option
     parser = configparser.ConfigParser()
     parser.read("config.conf")
     try:
         days_interval = parser.get("config", "days_interval")
     except:
         print("No option 'days_interval' in section: 'config'. Exit")
+        PressAnyKey()
         exit()
 
     # Check default config
@@ -832,6 +756,7 @@ def WindowsScheduler():
     # Check valid days_interval format
     if isinstance(days_interval, int) == False:
         print("[config] days_interval: is not in valid format. Exit")
+        PressAnyKey()
         exit()
 
     # Connect to Schedule Service
@@ -879,6 +804,7 @@ def LinuxScheduler():
         from crontab import CronTab
     except ImportError:
         print('Missing python modules. Exit')
+        PressAnyKey()
         exit()
 
     # Get crontab option
@@ -888,6 +814,7 @@ def LinuxScheduler():
         crontab = parser.get("config", "crontab")
     except:
         print("No option 'crontab' in section: 'config'. Exit")
+        PressAnyKey()
         exit()
 
     # Check default config
@@ -898,6 +825,7 @@ def LinuxScheduler():
     valid = croniter.is_valid(crontab)
     if valid == False:
         print("[config] crontab: is not in valid format. Exit")
+        PressAnyKey()
         exit()
 
     # Write crontab
@@ -919,7 +847,12 @@ def LinuxScheduler():
 
 
 def TestDatabase():
-    db_path = parser.get("config", "database")
+    try:
+        db_path = parser.get("config", "database")
+    except:
+        print("No option 'database' in section: 'config'. Exit")
+        PressAnyKey()
+        exit()
     try:
         r = requests.get(db_path, allow_redirects=True)
         db_json_string = str(r.content())
@@ -954,8 +887,18 @@ def SaveToLogServer():
     local_ip = socket.gethostbyname(hostname)
 
     share_name = "Logs$"
-    user_name = parser.get("auth", "user_name")
-    password = parser.get("auth", "password")
+    try:
+        user_name = parser.get("auth", "user_name")
+    except:
+        print("No option 'user_name' in section: 'auth'. Exit")
+        PressAnyKey()
+        exit()
+    try:
+        password = parser.get("auth", "password")
+    except:
+        print("No option 'password' in section: 'auth'. Exit")
+        PressAnyKey()
+        exit()
     local_machine_name = socket.gethostbyaddr(local_ip)[0]
     server_machine_name = "s-dc1-azure-bk.vingroup.local"      # MUST match correctly
     server_IP = "10.111.177.41"        # as must this
@@ -978,9 +921,6 @@ def SaveToLogServer():
 
 
 # Global variables
-total = 0
-matched = 0
-cleared = 0
 total_scan_time = 0
 cpu_percent = 0
 mem_percent = 0
@@ -991,12 +931,14 @@ mem_info = 0
 start_time = time.time()
 print("Webshell Scan Program")
 
+
 tool_path = os.getcwd()
 # Open config file
 try:
     config_handle = open("config.conf", "r")
 except:
     print("Cannot find config file. Exit.")
+    PressAnyKey()
     exit()
 
 # Linux use crontab
@@ -1009,15 +951,31 @@ elif platform.system() == "Windows":
 
 else:
     print('Unsupported OS')
+    PressAnyKey()
     exit()
 
 parser = configparser.ConfigParser()
 parser.read("config.conf")
-scan_dir = parser.get("config", "dir")
+try:
+    scan_dir = parser.get("config", "dir")
+except:
+    print("No option 'dir' in section: 'config'. Exit")
+    PressAnyKey()
+    exit()
 scan_dir = scan_dir.replace(" ", "")
 scan_dir = scan_dir.split(",")
-size = parser.get("config", "size")
-ext = parser.get("config", "ext")
+try:
+    size = parser.get("config", "size")
+except:
+    print("No option 'size' in section: 'config'. Exit")
+    PressAnyKey()
+    exit()
+try:
+    ext = parser.get("config", "ext")
+except:
+    print("No option 'ext' in section: 'config'. Exit")
+    PressAnyKey()
+    exit()
 
 if size == 0 or size == "":
     size = 10*1024*1024
@@ -1033,10 +991,15 @@ try:
     re.compile(regex)
 except:
     print('Non valid extension input. Exit')
+    PressAnyKey()
     exit()
 
 # Get All File
 file_list, file_list_all = GetAllFiles(scan_dir, size, ext)
+
+total = [0] * len(file_list)
+matched = [0] * len(file_list)
+cleared = [0] * len(file_list)
 
 # Define output
 os_name = platform.node()
@@ -1065,16 +1028,13 @@ splited_list = list(SplitList(file_list_all, chunk_numbers=i-1))
 t = [None] * i
 for j in range(i-1):
     t[j] = threading.Thread(target=ScanFunc, args=(
-        splited_list[j], output_dir, start_time, lock))
+        scan_dir, splited_list[j], output_dir, start_time, lock))
 t[i-1] = threading.Thread(target=GetDebugInfo)
 for j in range(i):
     t[j].start()
 for j in range(i):
     t[j].join()
 
-# ScanFuncSingle(splited_list, output_dir, start_time, lock)
-
-scan_dir = parser.get("config", "dir")
 WriteDebugInfo(total, matched, cleared, scan_dir, total_scan_time, output_dir)
 
 # Zip JSON output
@@ -1083,7 +1043,6 @@ with ZipFile(output_dir + "/" + output_zip, 'w', compression=zipfile.ZIP_DEFLATE
               os.path.basename(output_dir + "/log.json"))
 
 # Save file to log server
-
 # SaveToLogServer()
 
 # Delete local unnecessary file
