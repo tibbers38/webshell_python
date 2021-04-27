@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 import zipfile
+import pathlib
 from collections import Counter
 from zipfile import ZipFile
 
@@ -51,9 +52,11 @@ def getchr(prompt=''):
 # TESTED AND WORKED
 def GetAllFiles(dir_list, size, ext):
     i = 0
+    scan_dir = []
     for dir_path in dir_list:
         if os.path.isdir(dir_path):
             i = i + 1
+            scan_dir.append(dir_path)
     file_list = [[] for j in range(i)]
     i = 0
     for dir_path in dir_list:
@@ -71,15 +74,15 @@ def GetAllFiles(dir_list, size, ext):
                                 file_list.append(os.path.join(root, file))
                                 break
                     file_list[i].append(os.path.join(root, file))
-        i = i + 1
+            i = i + 1
     file_list_all = []
     if file_list == []:
-        print("Wrong path input. Exit.")
+        print("Path input incorrect. Exit.")
         PressAnyKey()
         exit()
-    for i in range(len(dir_list)):
+    for i in range(len(file_list)):
         file_list_all = file_list_all + file_list[i]
-    return file_list, file_list_all
+    return file_list, file_list_all, scan_dir
 
 # TESTED AND WORKED
 
@@ -131,17 +134,21 @@ def EntropyMatches(file_data):
 
     file_matches = {}
     entropy = 0.0
-    if len(file_data) < 20*1024:
-        return file_matches, 0
     file_data = file_data.replace(" ", "")
     for i in range(256):  # Scan all 256 character in ASCII
         count = float(file_data.count(chr(i)))
         length = float(len(file_data))
-        pX = count / length
+        try:
+            pX = count / length
+        except ZeroDivisionError:
+            return file_matches, entropy
         if pX > 0.00:
             entropy = entropy + (-pX * math.log(pX, 2))
     if entropy > 7.4:
         file_matches["Entropy"] = int(entropy*10)
+    if len(file_data) < 20*1024:
+        file_matches = {}
+        return file_matches, entropy
     return file_matches, entropy
 
 # TESTED AND WORKED, BUT NOT SURE
@@ -158,23 +165,27 @@ def CompressMatches(file_data):
         file_matches["Compress"] = int(ratio * 100)
     return file_matches
 
-# TESTED, NEARLY CORRECT =)))
+# TESTED BUT NOT SURE
 
 
 def SplitMatches(file_data):
+    # file_h = open("customer-new-account.php", "r")
+    # file_data = file_h.read()
+
     file_matches = {}
     s = "eval|file_put_contents|base64_decode|base64|python_eval|exec|passthru|popen|proc_open|pcntl|assert|system|shell|uncompress|cmd.exe|execute|escapeshellcmd|os.popen|/bin/sh|/bin/bash|create_function|executionpolicybypass"
     split_list = s.split("|")
     result = "|"
     for i in split_list:
         result = result + i[::-1] + "|"
+    result = result[:-1]
     reg = s + result
-    reg = reg.replace("_", "\_")
-    reg = reg.replace(".", "\.")
-    reg = reg.replace("/", "\/")
+    reg = reg.replace("_", r"\_")
+    reg = reg.replace(".", r"\.")
+    reg = reg.replace("/", r"\/")
     r = re.compile(reg)
     r1 = re.compile(r"(?:\'[^\']*\')|(?:\"[^\"]*\")")
-    r2 = re.compile(r"[^\w\/]")
+    r2 = re.compile(r"[^\w\/\.\_]")
     matches1 = re.findall(r1, file_data)
     s1 = ""
     if len(matches1) > 0:
@@ -218,7 +229,8 @@ def Base64Matches(file_data):
                     for k in matchesit1:
                         if len(k) == len(it1)-2:
                             continue
-                    file_matches[it1] = len(it1)
+                    if it1 != "":
+                        file_matches[it1] = len(it1)
     return file_matches
 
 # TESTED AND WORKED
@@ -248,7 +260,8 @@ def Base32Matches(file_data):
                     for k in matchesit1:
                         if len(k) == len(it1)-2:
                             continue
-                    file_matches[it1] = len(it1)
+                    if it1 != "":
+                        file_matches[it1] = len(it1)
     return file_matches
 
 # TESTED AND WORKED
@@ -287,6 +300,8 @@ def LongStringMatches(file_data):
         file_matches.update(count_dict)
     return file_matches
 
+# NOT TESTED
+
 
 def CustomMatches(file_data, custom_matches):
     file_matches = {}
@@ -306,8 +321,20 @@ def CustomMatches(file_data, custom_matches):
             file_matches.update(count_dict)
     return file_matches
 
-# TESTED AND WORKED
+# TESTED AND WORKED, BUT NOT SURE
 
+
+def CompressEncode(file, size):
+    # Input Sample
+    # file = "C:\\Users\\namlh21\\Downloads\\webshell-master\\138shell\\C\\ctt_sh.php.txt"
+
+    file_handle = open(file, "rb")
+    file_data = file_handle.read()
+    compressed = gzip.compress(bytes(file_data))
+    img_base64 = base64.b64encode(compressed)
+    return img_base64
+
+# TESTED AND WORKED
 
 def ProcessMatches(file):
     # Input Sample
@@ -322,10 +349,9 @@ def ProcessMatches(file):
         file_handle = open(file)
     except:
         return total_file_matches, 0, "", 0
-
     file_size = os.stat(file).st_size
     file_name = os.path.basename(file)
-    # Scan Extension
+
     file_matches = ScanExtension(file_name)
 
     if len(file_matches) > 0:
@@ -344,13 +370,12 @@ def ProcessMatches(file):
 
     matches = re.findall(pattern=cmtR, string=file_data)
     file_data = re.sub(pattern=cmtR, string=file_data, repl="")
-    cmtR = re.compile("[\s\n\r\t]+")
+    cmtR = re.compile(r"[\s\n\r\t]+")
     matches = re.findall(pattern=cmtR, string=file_data)
     file_data = re.sub(pattern=cmtR, string=file_data, repl=" ")
     file_data = file_data.replace("  ", " ")
     file_data = file_data.replace(" (", "(")
-    codeR = re.compile(
-        r"<\?php(?:.*?)\?>|<script(?:.*?)<\/script>|<%(?:.*?)%>")
+    codeR = re.compile(r"<\?php(?:.*?)\?>|<script(?:.*?)<\/script>|<%(?:.*?)%>")
     matches = re.findall(pattern=codeR, string=file_data)
     if len(matches) > 0:
         file_data = ""
@@ -358,6 +383,8 @@ def ProcessMatches(file):
             file_data = file_data + i
     else:
         return total_file_matches, 0, "", 0
+    # if len(file_data) == 0 or file_data == "":
+    #     return total_file_matches, 0, "", 0
 
     # String Matches
     file_matches = StringMatches(file_data)
@@ -421,8 +448,8 @@ def ProcessMatches(file):
         total_file_matches.update(file_matches)
         scan_info = scan_info + str(len(file_matches))
         count = count + 1
-    # scan_info = scan_info + ","
 
+    # scan_info = scan_info + ","
     # Custom Matches
     # try:
     #     lock.acquire()
@@ -481,11 +508,6 @@ def SHA256HashFile(file):
     return result
 
 
-def write_json(data, filename):
-    with open(filename, 'w') as f:
-        json.dump(data, f)
-
-
 def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock):
     global matched
     global cleared
@@ -507,15 +529,18 @@ def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock):
         # Process Matches
         file_matches, size, match_log, entropy = ProcessMatches(file)
 
+        # CompressEncode
+        raw = CompressEncode(file, size)
+
         # Process match_log: match_header = "PathName,Extension,String,Entropy,Compress,Split,Base64,Base32,HexString,LongString,Size,MD5,Created,Modified,Accessed\n"
         match_list = match_log.split(",")
 
         if len(match_list) != 10:
             match_list = [""] * 10
 
-        # Scanned database
+        # Work with file scanned database
         lock.acquire(timeout=-1)
-        db_handle = open("database.json", "r")
+        db_handle = open(tool_path + "/database.json", "r")
         db_content = db_handle.read()
         db_content_json = json.loads(db_content)
         db_handle.close()
@@ -551,13 +576,13 @@ def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock):
                 lock.release()
 
                 lock.acquire(timeout=-1)
-                db_handle = open("database.json", "r")
+                db_handle = open(tool_path + "/database.json", "r")
                 db_json = json.load(db_handle)
                 db_handle.close()
                 blacklist = db_json['blacklist']
                 blacklist.update({file_name: file_sha256})
-                db_handle = open("database.json", "w")
-                json.dump(db_json, db_handle)
+                db_handle = open(tool_path + "/database.json", "w")
+                json.dump(db_json, db_handle, indent=4)
                 db_handle.close()
                 lock.release()
 
@@ -569,13 +594,13 @@ def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock):
                 lock.release()
 
                 lock.acquire(timeout=-1)
-                db_handle = open("database.json", "r")
+                db_handle = open(tool_path + "/database.json", "r")
                 db_json = json.load(db_handle)
                 db_handle.close()
                 whitelist = db_json['whitelist']
                 whitelist.update({file_name: file_sha256})
-                db_handle = open("database.json", "w")
-                json.dump(db_json, db_handle)
+                db_handle = open(tool_path + "/database.json", "w")
+                json.dump(db_json, db_handle, indent=4)
                 db_handle.close()
                 lock.release()
                 continue
@@ -630,7 +655,8 @@ def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock):
 
         json_data.update({"matches": file_matches})
         json_data.update({"entropy": entropy})
-        json_data_string = json.dumps(json_data)
+        json_data.update({"rawContents": str(raw)})
+        json_data_string = json.dumps(json_data, indent=4)
 
         output_json_path = output_dir + "/log.json"
         lock.acquire(timeout=-1)
@@ -650,20 +676,24 @@ def GetDebugInfo():
     global mem_percent
     global mem_info
 
+    sample_times = 10
+
     pid = os.getpid()
     process = psutil.Process(pid)
-    cpu_percent_l = [0] * 10
-    mem_percent_l = [0] * 10
-    mem_info_l = [0] * 10
-    for i in range(10):
-        cpu_percent_l[i] = process.cpu_percent(
+    cpu_percent_list = [0] * sample_times
+    mem_percent_list = [0] * sample_times
+    mem_info_list = [0] * sample_times
+
+    for i in range(sample_times):
+        cpu_percent_list[i] = process.cpu_percent(
             interval=0.5) / psutil.cpu_count()
-        mem_percent_l[i] = process.memory_percent()
-        mem_info_l[i] = process.memory_info()[0]/(1024*1024)
+        mem_percent_list[i] = process.memory_percent()
+        mem_info_list[i] = process.memory_info()[0]/(1024*1024)
         time.sleep(1)
-    cpu_percent = round(sum(cpu_percent_l) / len(cpu_percent_l), 6)
-    mem_percent = round(sum(mem_percent_l) / len(mem_percent_l), 6)
-    mem_info = round(sum(mem_info_l) / len(mem_info_l), 6)
+
+    cpu_percent = round(sum(cpu_percent_list) / len(cpu_percent_list), 6)
+    mem_percent = round(sum(mem_percent_list) / len(mem_percent_list), 6)
+    mem_info = round(sum(mem_info_list) / len(mem_info_list), 6)
 
 
 def WriteDebugInfo(total, matched, cleared, scan_dir, scan_time, output_dir):
@@ -676,7 +706,7 @@ def WriteDebugInfo(total, matched, cleared, scan_dir, scan_time, output_dir):
     homedir = os.path.expanduser("~")
 
     parser = configparser.ConfigParser()
-    parser.read("config.conf")
+    parser.read(tool_path + "/config.conf")
     try:
         domain = parser.get("config", "domain")
     except:
@@ -702,7 +732,7 @@ def WriteDebugInfo(total, matched, cleared, scan_dir, scan_time, output_dir):
         scan_info[i].update({"noMatches": str(cleared[i])})
     for i in range(len(directory)):
         scan_data.update({"dir" + str(i+1): scan_info[i]})
-        # scan_data.update({"scanInfo": directory[i]})
+
     system_info = {}
     system_info.update({"cpuPercent": str(cpu_percent)})
     system_info.update({"memUsage": str(mem_info)})  # in KB
@@ -713,15 +743,14 @@ def WriteDebugInfo(total, matched, cleared, scan_dir, scan_time, output_dir):
     scan_data.update({"systemInfo": system_info})
 
     scan_data.update({"scanDuration": str(scan_time)})
-    scan_data_string = json.dumps(scan_data)
+    scan_data_string = json.dumps(scan_data, indent=4)
     output_json_path = output_dir + "/debug.json"
     output_json_handle = open(output_json_path, "a")
     output_json_handle.write(scan_data_string + "\n")
     output_json_handle.close()
 
-# TESTED AND WORKED
 
-
+# Split a list into chunk_numbers list
 def SplitList(lst, chunk_numbers):
     n = math.ceil(len(lst)/chunk_numbers)
     for x in range(0, len(lst), n):
@@ -741,7 +770,7 @@ def WindowsScheduler():
 
     # Get days_interval option
     parser = configparser.ConfigParser()
-    parser.read("config.conf")
+    parser.read(tool_path + "/config.conf")
     try:
         days_interval = parser.get("config", "days_interval")
     except:
@@ -777,8 +806,7 @@ def WindowsScheduler():
     TASK_ACTION_EXEC = 0
     action = task_def.Actions.Create(TASK_ACTION_EXEC)
     action.ID = 'DO NOTHING'
-    action.Path = tool_path + '\\calc.exe'
-    # action.Path = 'calc.exe'
+    action.Path = tool_path + '\\webshell_scan.exe'
 
     # Set parameters
     task_def.RegistrationInfo.Description = 'Webshell Scan Task'
@@ -809,7 +837,7 @@ def LinuxScheduler():
 
     # Get crontab option
     parser = configparser.ConfigParser()
-    parser.read("config.conf")
+    parser.read(tool_path + "/config.conf")
     try:
         crontab = parser.get("config", "crontab")
     except:
@@ -835,18 +863,20 @@ def LinuxScheduler():
     for job in cron:
         if job.comment == "webshell scan":
             job.setall(crontab)
-            job.command = "python3 " + tool_path + "/webshell_scan.py"
+            job.command = tool_path + "/webshell_scan"
             is_written = 1
             cron.write()
             break
     if is_written == 0:
-        job = cron.new(command="python3 " + tool_path +
-                       "/webshell_scan.py", comment="webshell scan")
+        job = cron.new(command=tool_path + "/webshell_scan",
+                       comment="webshell scan")
         job.setall(crontab)
         cron.write()
 
 
+
 def TestDatabase():
+    # MISSING READING WEB DATABASE FUNCTION
     try:
         db_path = parser.get("config", "database")
     except:
@@ -862,7 +892,7 @@ def TestDatabase():
     except:  # If can't get web db, open or create local db
         try:
             print("Finding local database...")
-            db_handle = open("database.json", "r")
+            db_handle = open(tool_path + "/database.json", "r")
             db_json_string = db_handle.read()
             db_json = json.loads(db_json_string)
             blacklist = db_json["blacklist"]
@@ -870,14 +900,14 @@ def TestDatabase():
             db_handle.close()
         except:
             print("Created new local database")
-            db_handle = open("database.json", "a")
+            db_handle = open(tool_path + "/database.json", "a")
             # Define new json db
             db_json = {}
             blacklist = {}
             whitelist = {}
             db_json.update({"blacklist": blacklist})
             db_json.update({"whitelist": whitelist})
-            db_json_string = json.dumps(db_json)
+            db_json_string = json.dumps(db_json, indent=4)
             db_handle.write(db_json_string)
             db_handle.close()
 
@@ -901,7 +931,7 @@ def SaveToLogServer():
         exit()
     local_machine_name = socket.gethostbyaddr(local_ip)[0]
     server_machine_name = "s-dc1-azure-bk.vingroup.local"      # MUST match correctly
-    server_IP = "10.111.177.41"        # as must this
+    server_IP = "10.111.177.41"        # also MUST this
 
     conn = SMBConnection(user_name, password, local_machine_name, server_machine_name,
                          is_direct_tcp=True, use_ntlm_v2=True, domain="VINGROUP")
@@ -931,15 +961,20 @@ mem_info = 0
 start_time = time.time()
 print("Webshell Scan Program")
 
+if platform.system() == "Windows":
+    tool_path = os.path.dirname(sys.argv[0])
+elif platform.system() == "Linux":
+    tool_path = os.path.abspath(os.path.dirname(sys.argv[0]))
 
-tool_path = os.getcwd()
 # Open config file
 try:
-    config_handle = open("config.conf", "r")
+    config_handle = open(tool_path + "/config.conf", "r")
 except:
     print("Cannot find config file. Exit.")
     PressAnyKey()
     exit()
+
+print("File config opened: " + tool_path + "/config.conf")
 
 # Linux use crontab
 if platform.system() == "Linux":
@@ -955,7 +990,7 @@ else:
     exit()
 
 parser = configparser.ConfigParser()
-parser.read("config.conf")
+parser.read(tool_path + "/config.conf")
 try:
     scan_dir = parser.get("config", "dir")
 except:
@@ -994,8 +1029,8 @@ except:
     PressAnyKey()
     exit()
 
-# Get All File
-file_list, file_list_all = GetAllFiles(scan_dir, size, ext)
+# Get all file list
+file_list, file_list_all, scan_dir = GetAllFiles(scan_dir, size, ext)
 
 total = [0] * len(file_list)
 matched = [0] * len(file_list)
@@ -1008,10 +1043,10 @@ domain_name = socket.getfqdn()
 ip_addr = socket.gethostbyname(socket.gethostname())
 scan_time = str(datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
 
-output_dir = os_name + "_" + scan_time
+output_dir = tool_path + "/" + os_name + "_" + scan_time
 os.mkdir(output_dir)
 output_zip = "(" + domain_name + ")-(" + ip_addr + ")-(" + \
-    scan_time + ")" + ".zip"
+    scan_time + ")-(webshell)" + ".zip"
 
 # Test open db
 TestDatabase()
@@ -1023,8 +1058,10 @@ i = psutil.cpu_count()  # NUM OF THREAD BASED ON NUM OF CPU ON SYSTEM
 if i == 1:
     i = 2
 
+# Split all file list into (num_of_thread-1) list.
 splited_list = list(SplitList(file_list_all, chunk_numbers=i-1))
 
+# Each thread using a sublist.
 t = [None] * i
 for j in range(i-1):
     t[j] = threading.Thread(target=ScanFunc, args=(
@@ -1035,12 +1072,15 @@ for j in range(i):
 for j in range(i):
     t[j].join()
 
+# Write debug info to debug.json
 WriteDebugInfo(total, matched, cleared, scan_dir, total_scan_time, output_dir)
 
 # Zip JSON output
 with ZipFile(output_dir + "/" + output_zip, 'w', compression=zipfile.ZIP_DEFLATED) as zip:
     zip.write(output_dir + "/log.json",
               os.path.basename(output_dir + "/log.json"))
+    zip.write(output_dir + "/debug.json",
+              os.path.basename(output_dir + "/debug.json"))
 
 # Save file to log server
 # SaveToLogServer()
