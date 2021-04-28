@@ -59,6 +59,8 @@ def GetAllFiles(dir_list, size, ext):
             scan_dir.append(dir_path)
     file_list = [[] for j in range(i)]
     i = 0
+
+    ext_list = ext.split("|")
     for dir_path in dir_list:
         if os.path.isdir(dir_path):
             for root, dirs, files in os.walk(dir_path):
@@ -66,14 +68,11 @@ def GetAllFiles(dir_list, size, ext):
                     file_size = os.path.getsize(root + "/" + file)
                     if file_size > size:
                         continue
-                    if ext != "":
-                        ext_list = ext.split("|")
-                        for e in ext_list:
-                            if e in file:
-                                # append the file name to the list
-                                file_list.append(os.path.join(root, file))
-                                break
-                    file_list[i].append(os.path.join(root, file))
+                    for e in ext_list:
+                        if e in file:
+                            # append the file name to the list
+                            file_list[i].append(os.path.join(root, file))
+                            break
             i = i + 1
     file_list_all = []
     if file_list == []:
@@ -347,8 +346,13 @@ def ProcessMatches(file):
 
     try:
         file_handle = open(file)
+        file_data = file_handle.read()
     except:
-        return total_file_matches, 0, "", 0
+        try:
+            file_handle = open(file, "rb")
+            file_data = file_handle.read()
+        except:
+            return total_file_matches, 0, "", 0
     file_size = os.stat(file).st_size
     file_name = os.path.basename(file)
 
@@ -359,10 +363,9 @@ def ProcessMatches(file):
         scan_info = scan_info + "TRUE"
         count = count + 1
     scan_info = scan_info + ","
-    try:
-        file_data = file_handle.read()
-    except:
-        return total_file_matches, file_size, "", 0
+
+    if isinstance(file_data, str) == False:
+        file_data = str(file_data)
 
     # CONFUSED HERE!!!!!!!!!!!
     # cmtR = "\/\/.*|\/\*.*?\*\/|[^\u0000-\u007f]+" # RANGE OF UNICODE IN PYTHON ONLY HAVE 1 \, NOT 2
@@ -375,7 +378,9 @@ def ProcessMatches(file):
     file_data = re.sub(pattern=cmtR, string=file_data, repl=" ")
     file_data = file_data.replace("  ", " ")
     file_data = file_data.replace(" (", "(")
-    codeR = re.compile(r"<\?php(?:.*?)\?>|<script(?:.*?)<\/script>|<%(?:.*?)%>")
+
+    # VERY IMPORTANT REGEX
+    codeR = re.compile(r"<\?php(?:.*?)\?>|<\?PHP(?:.*?)\?>|<script(?:.*?)<\/script>|<SCRIPT(?:.*?)<\/SCRIPT>|<%(?:.*?)%>")
     matches = re.findall(pattern=codeR, string=file_data)
     if len(matches) > 0:
         file_data = ""
@@ -1028,6 +1033,10 @@ except:
     print('Non valid extension input. Exit')
     PressAnyKey()
     exit()
+
+# Default scan all webshell extension
+if ext == "":
+    ext = r".php|.asp|.aspx|.sh|.bash|.zsh|.csh|.tsch|.pl|.py|.cgi|.cfm|.jsp|.htaccess|.ashx|.vbs|.ps1|.war|.js|.jar"
 
 # Get all file list
 file_list, file_list_all, scan_dir = GetAllFiles(scan_dir, size, ext)
