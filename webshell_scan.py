@@ -513,7 +513,7 @@ def SHA256HashFile(file):
     return result
 
 
-def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock):
+def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock, db_content_json):
     global matched
     global cleared
     global total
@@ -544,12 +544,14 @@ def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock):
             match_list = [""] * 10
 
         # Work with file scanned database
-        lock.acquire(timeout=-1)
-        db_handle = open(tool_path + "/database.json", "r")
-        db_content = db_handle.read()
-        db_content_json = json.loads(db_content)
-        db_handle.close()
-        lock.release()
+        if db_content_json == 0:
+            lock.acquire(timeout=-1)
+            db_handle = open(tool_path + "/database.json", "r")
+            db_content = db_handle.read()
+            db_content_json = json.loads(db_content)
+            db_handle.close()
+            lock.release()
+
         for i in range(len(scan_dir)):
             if scan_dir[i] in file:
                 total[i] = total[i] + 1
@@ -569,6 +571,7 @@ def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock):
                     cleared[i] = cleared[i] + 1
             lock.release()
             continue
+        # Only file not in db is wrote to database.json
         else:
             print(file)
             lock.acquire(timeout=-1)
@@ -888,33 +891,38 @@ def TestDatabase():
         print("No option 'database' in section: 'config'. Exit")
         PressAnyKey()
         exit()
-    try:
-        r = requests.get(db_path, allow_redirects=True)
-        db_json_string = str(r.content())
-        db_json = json.loads(db_json_string)
+
+    r = requests.get(db_path)
+    if r.status_code == 200:
+        print("Database opened: " + db_path)
+        db_json = r.json()
         blacklist = db_json["blacklist"]
         whitelist = db_json["whitelist"]
-    except:  # If can't get web db, open or create local db
-        try:
-            print("Finding local database...")
-            db_handle = open(tool_path + "/database.json", "r")
-            db_json_string = db_handle.read()
-            db_json = json.loads(db_json_string)
-            blacklist = db_json["blacklist"]
-            whitelist = db_json["whitelist"]
-            db_handle.close()
-        except:
-            print("Created new local database")
-            db_handle = open(tool_path + "/database.json", "a")
-            # Define new json db
-            db_json = {}
-            blacklist = {}
-            whitelist = {}
-            db_json.update({"blacklist": blacklist})
-            db_json.update({"whitelist": whitelist})
-            db_json_string = json.dumps(db_json, indent=4)
-            db_handle.write(db_json_string)
-            db_handle.close()
+    # If can't get web db, open or create local db
+    else:
+        print("Cannot find web database")
+        db_json = 0
+    try:
+        print("Finding local database...")
+        db_handle = open(tool_path + "/database.json", "r")
+        db_json_string = db_handle.read()
+        db_json_local = json.loads(db_json_string)
+        blacklist = db_json_local["blacklist"]
+        whitelist = db_json_local["whitelist"]
+        db_handle.close()
+    except:
+        print("Created new local database")
+        db_handle = open(tool_path + "/database.json", "a")
+        # Define new json db
+        db_json_local = {}
+        blacklist = {}
+        whitelist = {}
+        db_json_local.update({"blacklist": blacklist})
+        db_json_local.update({"whitelist": whitelist})
+        db_json_string = json.dumps(db_json_local, indent=4)
+        db_handle.write(db_json_string)
+        db_handle.close()
+    return db_json
 
 
 def SaveToLogServer():
@@ -1058,7 +1066,7 @@ output_zip = "(" + domain_name + ")-(" + ip_addr + ")-(" + \
     scan_time + ")-(webshell)" + ".zip"
 
 # Test open db
-TestDatabase()
+db_json = TestDatabase()
 
 # Multi Threading
 lock = threading.Lock()
@@ -1074,7 +1082,7 @@ splited_list = list(SplitList(file_list_all, chunk_numbers=i-1))
 t = [None] * i
 for j in range(i-1):
     t[j] = threading.Thread(target=ScanFunc, args=(
-        scan_dir, splited_list[j], output_dir, start_time, lock))
+        scan_dir, splited_list[j], output_dir, start_time, lock, db_json))
 t[i-1] = threading.Thread(target=GetDebugInfo)
 for j in range(i):
     t[j].start()
@@ -1097,3 +1105,4 @@ with ZipFile(output_dir + "/" + output_zip, 'w', compression=zipfile.ZIP_DEFLATE
 # Delete local unnecessary file
 # if os.path.exists(output_dir + "/log.json"):
 #     os.remove(output_dir + "/log.json")
+
