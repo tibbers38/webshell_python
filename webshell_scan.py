@@ -14,7 +14,6 @@ import sys
 import threading
 import time
 import zipfile
-import pathlib
 from collections import Counter
 from zipfile import ZipFile
 
@@ -27,6 +26,7 @@ if platform.system() == "Linux":
         import termios
         import tty
     except ImportError:
+        print("Missing modules termios or tty.")
         exit()
 
 
@@ -76,7 +76,7 @@ def GetAllFiles(dir_list, size, ext):
             i = i + 1
     file_list_all = []
     if file_list == []:
-        print("Path input incorrect. Exit.")
+        print("Incorrect scan directory. Check [config].dir in config.conf")
         PressAnyKey()
         exit()
     for i in range(len(file_list)):
@@ -335,6 +335,7 @@ def CompressEncode(file, size):
 
 # TESTED AND WORKED
 
+
 def ProcessMatches(file):
     # Input Sample
     # file = "C:\\Users\\namlh21\\Downloads\\webshell-master\\138shell\\C\\ctt_sh.php.txt"
@@ -380,7 +381,8 @@ def ProcessMatches(file):
     file_data = file_data.replace(" (", "(")
 
     # VERY IMPORTANT REGEX
-    codeR = re.compile(r"<\?php(?:.*?)\?>|<\?PHP(?:.*?)\?>|<script(?:.*?)<\/script>|<SCRIPT(?:.*?)<\/SCRIPT>|<%(?:.*?)%>")
+    codeR = re.compile(
+        r"<\?php(?:.*?)\?>|<\?PHP(?:.*?)\?>|<script(?:.*?)<\/script>|<SCRIPT(?:.*?)<\/SCRIPT>|<%(?:.*?)%>")
     matches = re.findall(pattern=codeR, string=file_data)
     if len(matches) > 0:
         file_data = ""
@@ -388,8 +390,6 @@ def ProcessMatches(file):
             file_data = file_data + i
     else:
         return total_file_matches, 0, "", 0
-    # if len(file_data) == 0 or file_data == "":
-    #     return total_file_matches, 0, "", 0
 
     # String Matches
     file_matches = StringMatches(file_data)
@@ -537,7 +537,7 @@ def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock, db_content_j
         # CompressEncode
         raw = CompressEncode(file, size)
 
-        # Process match_log: match_header = "PathName,Extension,String,Entropy,Compress,Split,Base64,Base32,HexString,LongString,Size,MD5,Created,Modified,Accessed\n"
+        # match_header = "PathName,Extension,String,Entropy,Compress,Split,Base64,Base32,HexString,LongString,Size,MD5,Created,Modified,Accessed\n"
         match_list = match_log.split(",")
 
         if len(match_list) != 10:
@@ -571,6 +571,7 @@ def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock, db_content_j
                     cleared[i] = cleared[i] + 1
             lock.release()
             continue
+
         # Only file not in db is wrote to database.json
         else:
             print(file)
@@ -718,7 +719,7 @@ def WriteDebugInfo(total, matched, cleared, scan_dir, scan_time, output_dir):
     try:
         domain = parser.get("config", "domain")
     except:
-        print("No option 'domain' in section: 'config'. Exit")
+        print("No option 'domain'. Check [config].domain in config.conf")
         PressAnyKey()
         exit()
     domain = domain.replace(" ", "")
@@ -772,7 +773,7 @@ def WindowsScheduler():
     try:
         import win32com.client
     except ImportError:
-        print('Missing python modules. Exit')
+        print('Missing pywin32 modules.')
         PressAnyKey()
         exit()
 
@@ -782,17 +783,19 @@ def WindowsScheduler():
     try:
         days_interval = parser.get("config", "days_interval")
     except:
-        print("No option 'days_interval' in section: 'config'. Exit")
+        print(
+            "No option 'days_interval'. Check [config].days_interval in config.conf")
         PressAnyKey()
         exit()
 
     # Check default config
     if days_interval == "":
-        days_interval = 30  # run every 30 days
+        days_interval = 30  # run every 30 days after
 
     # Check valid days_interval format
     if isinstance(days_interval, int) == False:
-        print("[config] days_interval: is not in valid format. Exit")
+        print(
+            "'days_interval' is not in valid format. Check [config].days_interval in config.conf")
         PressAnyKey()
         exit()
 
@@ -820,8 +823,7 @@ def WindowsScheduler():
     task_def.RegistrationInfo.Description = 'Webshell Scan Task'
     task_def.Settings.Enabled = True
 
-    # Register task
-    # If task already exists, it will be updated
+    # Register task. If task already exists, it will be updated
     TASK_CREATE_OR_UPDATE = 6
     TASK_LOGON_NONE = 0
     root_folder.RegisterTaskDefinition(
@@ -839,7 +841,7 @@ def LinuxScheduler():
         from croniter import croniter
         from crontab import CronTab
     except ImportError:
-        print('Missing python modules. Exit')
+        print('Missing crontab or croniter modules. Exit')
         PressAnyKey()
         exit()
 
@@ -849,7 +851,7 @@ def LinuxScheduler():
     try:
         crontab = parser.get("config", "crontab")
     except:
-        print("No option 'crontab' in section: 'config'. Exit")
+        print("No option 'crontab'. Check [config].crontab in config.conf")
         PressAnyKey()
         exit()
 
@@ -860,7 +862,8 @@ def LinuxScheduler():
     # Check valid crontab
     valid = croniter.is_valid(crontab)
     if valid == False:
-        print("[config] crontab: is not in valid format. Exit")
+        print(
+            "'crontab' is not in valid format. Check [config].crontab in config.conf")
         PressAnyKey()
         exit()
 
@@ -882,26 +885,24 @@ def LinuxScheduler():
         cron.write()
 
 
-
 def TestDatabase():
-    # MISSING READING WEB DATABASE FUNCTION
     try:
         db_path = parser.get("config", "database")
     except:
-        print("No option 'database' in section: 'config'. Exit")
+        print("No option 'database'. Check [config].database in config.conf")
         PressAnyKey()
         exit()
-
-    r = requests.get(db_path)
-    if r.status_code == 200:
-        print("Database opened: " + db_path)
-        db_json = r.json()
-        blacklist = db_json["blacklist"]
-        whitelist = db_json["whitelist"]
-    # If can't get web db, open or create local db
-    else:
-        print("Cannot find web database")
+    try:
+        r = requests.get(db_path)
+        if r.status_code == 200:
+            print("Database opened: " + db_path)
+            db_json = r.json()
+            blacklist = db_json["blacklist"]
+            whitelist = db_json["whitelist"]
+    except:
+        print("Cannot open web scanned database URL")
         db_json = 0
+    # If can't get web db, open or create local db
     try:
         print("Finding local database...")
         db_handle = open(tool_path + "/database.json", "r")
@@ -930,18 +931,9 @@ def SaveToLogServer():
     local_ip = socket.gethostbyname(hostname)
 
     share_name = "Logs$"
-    try:
-        user_name = parser.get("auth", "user_name")
-    except:
-        print("No option 'user_name' in section: 'auth'. Exit")
-        PressAnyKey()
-        exit()
-    try:
-        password = parser.get("auth", "password")
-    except:
-        print("No option 'password' in section: 'auth'. Exit")
-        PressAnyKey()
-        exit()
+
+    user_name = base64.b64decode("c29jX2h1bnRpbmc=").decode()
+    password = base64.b64decode("ZWFyY2hEdW1wc3RAMQ==").decode()
     local_machine_name = socket.gethostbyaddr(local_ip)[0]
     server_machine_name = "s-dc1-azure-bk.vingroup.local"      # MUST match correctly
     server_IP = "10.111.177.41"        # also MUST this
@@ -983,7 +975,7 @@ elif platform.system() == "Linux":
 try:
     config_handle = open(tool_path + "/config.conf", "r")
 except:
-    print("Cannot find config file. Exit.")
+    print("Cannot find config.conf file. Exit.")
     PressAnyKey()
     exit()
 
@@ -998,7 +990,7 @@ elif platform.system() == "Windows":
     WindowsScheduler()
 
 else:
-    print('Unsupported OS')
+    print('Unsupported OS. Exit.')
     PressAnyKey()
     exit()
 
@@ -1007,7 +999,7 @@ parser.read(tool_path + "/config.conf")
 try:
     scan_dir = parser.get("config", "dir")
 except:
-    print("No option 'dir' in section: 'config'. Exit")
+    print("No option 'dir'. Check [config].dir in config.conf")
     PressAnyKey()
     exit()
 scan_dir = scan_dir.replace(" ", "")
@@ -1015,16 +1007,17 @@ scan_dir = scan_dir.split(",")
 try:
     size = parser.get("config", "size")
 except:
-    print("No option 'size' in section: 'config'. Exit")
+    print("No option 'size'. Check [config].size in config.conf")
     PressAnyKey()
     exit()
 try:
     ext = parser.get("config", "ext")
 except:
-    print("No option 'ext' in section: 'config'. Exit")
+    print("No option 'ext'. Check [config].ext in config.conf")
     PressAnyKey()
     exit()
 
+# Default size is 10 MB
 if size == 0 or size == "":
     size = 10*1024*1024
 else:
@@ -1038,7 +1031,7 @@ try:
     re.compile(ext)
     re.compile(regex)
 except:
-    print('Non valid extension input. Exit')
+    print('Invalid extension input. Check [config].ext in config.conf')
     PressAnyKey()
     exit()
 
@@ -1100,9 +1093,8 @@ with ZipFile(output_dir + "/" + output_zip, 'w', compression=zipfile.ZIP_DEFLATE
               os.path.basename(output_dir + "/debug.json"))
 
 # Save file to log server
-# SaveToLogServer()
+SaveToLogServer()
 
 # Delete local unnecessary file
 # if os.path.exists(output_dir + "/log.json"):
 #     os.remove(output_dir + "/log.json")
-
