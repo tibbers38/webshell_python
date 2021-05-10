@@ -1,7 +1,4 @@
-'C:\\Users\\namlh21\\Downloads\\WebShell_2\\Php\\Liz0ziM Private Safe Mode Command Execuriton Bypass Exploit.php'
-"C:\Users\namlh21\Downloads\webshell-master\php_niu_3.php"
-"C:\Users\namlh21\Downloads\webshell-master\xakep-shells\PHP\lamashell.php.txt"
-'C:\\Users\\namlh21\\Downloads\\webshell-master\\caidao-shell\\ice.cfm'
-'C:\\Users\\namlh21\\Downloads\\WebShell_2\\Php\\megabor.php'
-'C:\\Users\\namlh21\\Downloads\\webshell-master\\caidao-shell\\w.jspx'
-'C:\\Users\\namlh21\\Downloads\\WebShell_2\\Php\\Moroccan Spamers Ma-EditioN By GhOsT.php'
+aa8a3c4af27ef689a469217280edeb4a43987562.php (not understand)
+aa8fc9161c7f94050e92a4abbdb948b750e174b3.php (obfuscated)
+39ec5e7c9c79f8c8f1de1456df7f4c2cf27bb039.php (too short)
+aca0d5298226d7e21e6c304b9282d1abda785770.php (can't match until end file)
