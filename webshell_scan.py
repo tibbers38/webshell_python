@@ -86,7 +86,7 @@ def GetAllFiles(dir_list, size, ext):
 # TESTED AND WORKED
 
 
-def ScanExtension(file_name):
+def ScanDoubleExtension(file_name):
     # Input Sample
     # file_name = "Ajan.asp.txt"
 
@@ -143,7 +143,7 @@ def EntropyMatches(file_data):
             return file_matches, entropy
         if pX > 0.00:
             entropy = entropy + (-pX * math.log(pX, 2))
-    if entropy > 7.4:
+    if entropy > 6:
         file_matches["Entropy"] = int(entropy*10)
     if len(file_data) < 20*1024:
         file_matches = {}
@@ -299,6 +299,15 @@ def LongStringMatches(file_data):
         file_matches.update(count_dict)
     return file_matches
 
+# NOT GOOD
+def ObfuscatedMatches(file_data):
+    file_matches = {}
+    r1 = re.compile(r"str_replace")
+    matches = re.findall(r1, file_data)
+    count_dict = dict(Counter(matches).items())
+    file_matches.update(count_dict)
+    return file_matches
+
 # NOT TESTED
 
 
@@ -357,7 +366,7 @@ def ProcessMatches(file):
     file_size = os.stat(file).st_size
     file_name = os.path.basename(file)
 
-    file_matches = ScanExtension(file_name)
+    file_matches = ScanDoubleExtension(file_name)
 
     if len(file_matches) > 0:
         total_file_matches.update(file_matches)
@@ -381,8 +390,10 @@ def ProcessMatches(file):
     file_data = file_data.replace(" (", "(")
 
     # VERY IMPORTANT REGEX
+    # codeR = re.compile(
+        # r"<\?php(?:.*)\?>|<\?PHP(?:.*)\?>|<script(?:.*)<\/script>|<SCRIPT(?:.*)<\/SCRIPT>|<\?eval(?:.*)\?>|<\?\s+eval(?:.*)\?>|<%(?:.*)|<\?(?:.*)")
     codeR = re.compile(
-        r"<\?php(?:.*?)\?>|<\?PHP(?:.*?)\?>|<script(?:.*?)<\/script>|<SCRIPT(?:.*?)<\/SCRIPT>|<%(?:.*?)%>")
+        r"<\?php(?:.*)\?>|<\?PHP(?:.*)\?>|<script(?:.*)<\/script>|<SCRIPT(?:.*)<\/SCRIPT>|<%(?:.*)%>|<\?(?:.*)\?>")
     matches = re.findall(pattern=codeR, string=file_data)
     if len(matches) > 0:
         file_data = ""
@@ -449,6 +460,14 @@ def ProcessMatches(file):
 
     # Long String Matches
     file_matches = LongStringMatches(file_data)
+    if len(file_matches) > 0:
+        total_file_matches.update(file_matches)
+        scan_info = scan_info + str(len(file_matches))
+        count = count + 1
+    scan_info = scan_info + ","
+
+    # Obfuscated Matches
+    file_matches = ObfuscatedMatches(file_data)
     if len(file_matches) > 0:
         total_file_matches.update(file_matches)
         scan_info = scan_info + str(len(file_matches))
@@ -540,8 +559,9 @@ def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock, db_content_j
         # match_header = "PathName,Extension,String,Entropy,Compress,Split,Base64,Base32,HexString,LongString,Size,MD5,Created,Modified,Accessed\n"
         match_list = match_log.split(",")
 
-        if len(match_list) != 10:
-            match_list = [""] * 10
+        # When program add a new match, EDIT THIS NUM
+        if len(match_list) != 11:
+            match_list = [""] * 11
 
         # Work with file scanned database
         if db_content_json == 0:
@@ -1073,14 +1093,16 @@ splited_list = list(SplitList(file_list_all, chunk_numbers=i-1))
 
 # Each thread using a sublist.
 t = [None] * i
-for j in range(i-1):
+for j in range(len(splited_list)):
     t[j] = threading.Thread(target=ScanFunc, args=(
         scan_dir, splited_list[j], output_dir, start_time, lock, db_json))
 t[i-1] = threading.Thread(target=GetDebugInfo)
 for j in range(i):
-    t[j].start()
+    if t[j] != None:
+        t[j].start()
 for j in range(i):
-    t[j].join()
+    if t[j] != None:
+        t[j].join()
 
 # Write debug info to debug.json
 WriteDebugInfo(total, matched, cleared, scan_dir, total_scan_time, output_dir)
