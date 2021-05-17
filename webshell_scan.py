@@ -993,7 +993,10 @@ elif platform.system() == "Linux":
 
 # Open config file
 try:
-    config_handle = open(tool_path + "/config.conf", "r")
+    if platform.system() == "Linux":
+        config_handle = open(tool_path + "/config.conf", "r")
+    elif platform.system() == "Windows":
+        tool_path = open(tool_path + "\\config.conf", "r")
 except:
     print("Cannot find config.conf file. Exit.")
     PressAnyKey()
@@ -1061,6 +1064,11 @@ if ext == "":
 
 # Get all file list
 file_list, file_list_all, scan_dir = GetAllFiles(scan_dir, size, ext)
+print("Total file will scan: " + str(len(file_list_all)))
+if len(file_list_all) == 0:
+    print("No file will be scanned. Exit")
+    PressAnyKey()
+    exit()
 
 total = [0] * len(file_list)
 matched = [0] * len(file_list)
