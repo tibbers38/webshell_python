@@ -813,11 +813,13 @@ def WindowsScheduler():
         days_interval = 30  # run every 30 days after
 
     # Check valid days_interval format
-    if isinstance(days_interval, int) == False:
+    if days_interval.isnumeric() == False:
         print(
             "'days_interval' is not in valid format. Check [config].days_interval in config.conf")
         PressAnyKey()
         exit()
+    else:
+        days_interval = int(days_interval)
 
     # Connect to Schedule Service
     scheduler = win32com.client.Dispatch('Schedule.Service')
@@ -996,7 +998,7 @@ try:
     if platform.system() == "Linux":
         config_handle = open(tool_path + "/config.conf", "r")
     elif platform.system() == "Windows":
-        tool_path = open(tool_path + "\\config.conf", "r")
+        config_handle = open(tool_path + "\\config.conf", "r")
 except:
     print("Cannot find config.conf file. Exit.")
     PressAnyKey()
