@@ -810,7 +810,7 @@ def WindowsScheduler():
 
     # Check default config
     if days_interval == "":
-        days_interval = 30  # run every 30 days after
+        days_interval = "30"  # run every 30 days after
 
     # Check valid days_interval format
     if days_interval.isnumeric() == False:
@@ -842,20 +842,30 @@ def WindowsScheduler():
     action.Path = tool_path + '\\webshell_scan.exe'
 
     # Set parameters
+    TASK_RUNLEVEL_HIGHEST = 1
+    TASK_LOGON_SERVICE_ACCOUNT = 5
     task_def.RegistrationInfo.Description = 'Webshell Scan Task'
     task_def.Settings.Enabled = True
+    task_def.Settings.StartWhenAvailable = True
+    task_def.Principal.RunLevel = TASK_RUNLEVEL_HIGHEST
+    task_def.Principal.LogonType = TASK_LOGON_SERVICE_ACCOUNT
 
     # Register task. If task already exists, it will be updated
     TASK_CREATE_OR_UPDATE = 6
-    TASK_LOGON_NONE = 0
-    root_folder.RegisterTaskDefinition(
-        'Webshell Scan Task',  # Task name
-        task_def,
-        TASK_CREATE_OR_UPDATE,
-        '',  # No user
-        '',  # No password
-        TASK_LOGON_NONE)
-
+    TASK_LOGON_INTERACTIVE_TOKEN = 3
+    try:
+        root_folder.RegisterTaskDefinition(
+            'Webshell Scan Task',  # Task name
+            task_def,
+            TASK_CREATE_OR_UPDATE,
+            'SYSTEM',
+            None,  # No password
+            TASK_LOGON_INTERACTIVE_TOKEN)
+    except:
+        print("The program doesn't have enough privileges.")
+        print("Check if you run program as administrator.")
+        PressAnyKey()
+        exit()
 
 def LinuxScheduler():
     try:
