@@ -21,10 +21,10 @@ Options:
 Run program:
 1. Put config.conf into the same path of .py file
 2. Run program:
-    - Run from source code: 
+    - Run from source code: MUST RUN AS ADMINISTRATOR (WINDOWS)
         python webshell_scan.py
-    - Run from executable (Windows):
-        webshell_scan.exe
+    - Run from executable (Windows): MUST RUN AS ADMINISTRATOR
+        .\webshell_scan.exe
     - Run from executable (Linux):
         ./webshell_scan
 
