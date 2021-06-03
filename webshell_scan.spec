@@ -5,7 +5,7 @@ block_cipher = None
 
 
 a = Analysis(['webshell_scan.py'],
-             pathex=['C:\\Users\\namlh21\\Downloads\\webshell_python'],
+             pathex=['C:\\Users\\namlh21\\Downloads\\webshell\\webshell_python'],
              binaries=[],
              datas=[],
              hiddenimports=[],
