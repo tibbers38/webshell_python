@@ -53,6 +53,18 @@ def getchr(prompt=''):
 def GetAllFiles(dir_list, size, ext):
     i = 0
     scan_dir = []
+    # Default web directory
+    windows_list = ["C:\\xampp\\htdocs","C:\\inetpub\\wwwroot","C:\\Apache24\\htdocs"]
+    linux_list = ["/var/www/html","/var/http/","/srv/http/","/etc/apache2/","/etc/nginx/","/etc/httpd/","/usr/local/apache2","/webapps/ROOT/","/applications/DefaultWebApp/","/opt/lampp/httpdocs/"]
+    if platform.system() == "Windows":
+        dir_list = dir_list + windows_list
+    elif platform.system() == "Linux":
+        dir_list = dir_list + linux_list
+    else:
+        print("Unsupported OS. Exit")
+        PressAnyKey()
+        exit()
+
     for dir_path in dir_list:
         if os.path.isdir(dir_path):
             i = i + 1
@@ -65,7 +77,10 @@ def GetAllFiles(dir_list, size, ext):
         if os.path.isdir(dir_path):
             for root, dirs, files in os.walk(dir_path):
                 for file in files:
-                    file_size = os.path.getsize(root + "/" + file)
+                    try:
+                        file_size = os.path.getsize(root + "/" + file)
+                    except:
+                        continue
                     if file_size > size:
                         continue
                     for e in ext_list:
@@ -311,19 +326,26 @@ def ObfuscatedMatches(file_data):
 # NOT TESTED
 
 
-def CustomMatches(file_data, custom_matches):
+def CustomMatches(file_data):
     file_matches = {}
-    if custom_matches == "":
+    lock.acquire()
+    custom_matches_handle = open("database.json", "r")
+    custom_matches_string = custom_matches_handle.read()
+    custom_matches = json.loads(custom_matches_string)
+    custom_matches = custom_matches.get("rules")
+    custom_matches_handle.close()
+    lock.release()
+    if custom_matches == "" or custom_matches == None:
         return file_matches
     r = [None] * len(custom_matches)
-    for i in range(len(custom_matches)):
+    regex_list = list(custom_matches.values())
+    for i in range(len(regex_list)):
         try:
-            r[i] = re.compile(custom_matches[i])
+            r[i] = re.compile(regex_list[i])
         except:
-            print("Can't compile custom_rules.json")
             return file_matches
     for i in r:
-        matches = re.findall(r[i], file_data)
+        matches = re.findall(i, file_data)
         if len(matches) > 0:
             count_dict = dict(Counter(matches).items())
             file_matches.update(count_dict)
@@ -368,6 +390,7 @@ def ProcessMatches(file):
 
     file_matches = ScanDoubleExtension(file_name)
 
+    # Extension Matches
     if len(file_matches) > 0:
         total_file_matches.update(file_matches)
         scan_info = scan_info + "TRUE"
@@ -472,36 +495,14 @@ def ProcessMatches(file):
         total_file_matches.update(file_matches)
         scan_info = scan_info + str(len(file_matches))
         count = count + 1
+    scan_info = scan_info + ","
 
-    # scan_info = scan_info + ","
     # Custom Matches
-    # try:
-    #     lock.acquire()
-    #     custom_matches_handle = open("custom_rule.json", "r")
-    #     custom_matches_string = custom_matches_handle.read()
-    #     custom_matches = json.loads(custom_matches_string)
-    #     custom_matches = custom_matches.get('rules')
-    #     custom_matches_handle.close()
-    #     lock.release()
-    # except:
-    #     custom_matches = ""
-    # r = [None] * len(custom_matches)
-
-    # if custom_matches_invalid == 0:
-    #     for i in range(len(custom_matches)):
-    #         try:
-    #             r[i] = re.compile(custom_matches[i])
-    #         except:
-    #             lock.acquire()
-    #             custom_matches_invalid = 1
-    #             lock.release()
-    #             break
-    #     if custom_matches_invalid == 0:
-    #         file_matches = CustomMatches(file_data, custom_matches)
-    #         if len(file_matches) > 0:
-    #             total_file_matches.update(file_matches)
-    #             scan_info = scan_info + str(len(file_matches))
-    #             count = count + 1
+    file_matches = CustomMatches(file_data)
+    if len(file_matches) > 0:
+        total_file_matches.update(file_matches)
+        scan_info = scan_info + str(len(file_matches))
+        count = count + 1
 
     match_log = file + "," + scan_info.replace(" ", "")
     if count > 0:
@@ -560,8 +561,8 @@ def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock, db_content_j
         match_list = match_log.split(",")
 
         # When program add a new match, EDIT THIS NUM
-        if len(match_list) != 11:
-            match_list = [""] * 11
+        if len(match_list) != 12:
+            match_list = [""] * 12
 
         # Work with file scanned database
         if db_content_json == 0:
@@ -680,6 +681,8 @@ def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock, db_content_j
         signature.update({"base32": match_list[7]})
         signature.update({"hexstring": match_list[8]})
         signature.update({"longstring": match_list[9]})
+        signature.update({"obfuscated": match_list[10]})
+        signature.update({"custom": match_list[11]})
         json_data.update({"signature": signature})
 
         json_data.update({"matches": file_matches})
@@ -789,7 +792,7 @@ def SplitList(lst, chunk_numbers):
         yield each_chunk
 
 
-def WindowsScheduler():
+def WindowsScheduler(run_hour):
     try:
         import win32com.client
     except ImportError:
@@ -831,6 +834,7 @@ def WindowsScheduler():
     start_time = datetime.datetime.now()
     TASK_TRIGGER_TIME = 1
     trigger = task_def.Triggers.Create(TASK_TRIGGER_TIME)
+    start_time = start_time.replace(hour=run_hour, minute=0, second=0, microsecond=0)
     trigger.StartBoundary = start_time.isoformat()
     repetitionPattern = trigger.Repetition
     repetitionPattern.Interval = "P" + str(days_interval) + "D"
@@ -867,7 +871,7 @@ def WindowsScheduler():
         PressAnyKey()
         exit()
 
-def LinuxScheduler():
+def LinuxScheduler(run_hour):
     try:
         import crontab
         from croniter import croniter
@@ -889,7 +893,7 @@ def LinuxScheduler():
 
     # Check default config
     if crontab == "":
-        crontab = "0 0 1 * *"  # every first day of month
+        crontab = "0 " + str(run_hour) + " 1 * *"  # every first day of month, at run_hour:00.
 
     # Check valid crontab
     valid = croniter.is_valid(crontab)
@@ -931,6 +935,7 @@ def TestDatabase():
             db_json = r.json()
             blacklist = db_json["blacklist"]
             whitelist = db_json["whitelist"]
+            rules = db_json["rules"]
     except:
         print("Cannot open web scanned database URL")
         db_json = 0
@@ -942,6 +947,7 @@ def TestDatabase():
         db_json_local = json.loads(db_json_string)
         blacklist = db_json_local["blacklist"]
         whitelist = db_json_local["whitelist"]
+        rules = db_json_local["rules"]
         db_handle.close()
     except:
         print("Created new local database")
@@ -950,8 +956,10 @@ def TestDatabase():
         db_json_local = {}
         blacklist = {}
         whitelist = {}
+        rules = {}
         db_json_local.update({"blacklist": blacklist})
         db_json_local.update({"whitelist": whitelist})
+        db_json_local.update({"rules": rules})
         db_json_string = json.dumps(db_json_local, indent=4)
         db_handle.write(db_json_string)
         db_handle.close()
@@ -992,6 +1000,7 @@ total_scan_time = 0
 cpu_percent = 0
 mem_percent = 0
 mem_info = 0
+run_hour = 22 # The program will run at this hour
 # custom_matches_inval = 0
 
 # Main program
@@ -1018,16 +1027,23 @@ print("File config opened: " + tool_path + "/config.conf")
 
 # Linux use crontab
 if platform.system() == "Linux":
-    LinuxScheduler()
+    LinuxScheduler(run_hour)
 
 # Windows use Task Scheduler
 elif platform.system() == "Windows":
-    WindowsScheduler()
+    WindowsScheduler(run_hour)
 
 else:
     print('Unsupported OS. Exit.')
     PressAnyKey()
     exit()
+
+# Make program run only at run_hour
+# current_time = datetime.datetime.now()
+# if current_time.hour != run_hour:
+#     print("The program will continue to run at " + str(run_hour) + ":00 pm today.")
+#     PressAnyKey()
+#     exit()
 
 parser = configparser.ConfigParser()
 parser.read(tool_path + "/config.conf")
