@@ -1,3 +1,7 @@
+# -----------------------------------------------------------------------------------------------------------
+# IMPORT
+# -----------------------------------------------------------------------------------------------------------
+
 import base64
 import configparser
 import datetime
@@ -29,6 +33,9 @@ if platform.system() == "Linux":
         print("Missing modules termios or tty.")
         exit()
 
+# -----------------------------------------------------------------------------------------------------------
+# FUNCTION
+# -----------------------------------------------------------------------------------------------------------
 
 def PressAnyKey():
     if platform.system() == "Windows":
@@ -329,8 +336,9 @@ def ObfuscatedMatches(file_data):
 def CustomMatches(file_data):
     file_matches = {}
     lock.acquire()
-    custom_matches_handle = open("database.json", "r")
+    custom_matches_handle = open("database.dat", "rb")
     custom_matches_string = custom_matches_handle.read()
+    custom_matches_string = base64.b64decode(custom_matches_string).decode()
     custom_matches = json.loads(custom_matches_string)
     custom_matches = custom_matches.get("rules")
     custom_matches_handle.close()
@@ -564,11 +572,12 @@ def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock, db_content_j
         if len(match_list) != 12:
             match_list = [""] * 12
 
-        # Work with file scanned database
+        # If can't open web db, load from local db
         if db_content_json == 0:
             lock.acquire(timeout=-1)
-            db_handle = open(tool_path + "/database.json", "r")
+            db_handle = open(tool_path + "/database.dat", "rb")
             db_content = db_handle.read()
+            db_content = base64.b64decode(db_content).decode()
             db_content_json = json.loads(db_content)
             db_handle.close()
             lock.release()
@@ -593,7 +602,7 @@ def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock, db_content_j
             lock.release()
             continue
 
-        # Only file not in db is wrote to database.json
+        # Only file not in db is wrote to database.dat
         else:
             print(file)
             lock.acquire(timeout=-1)
@@ -606,13 +615,17 @@ def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock, db_content_j
                 lock.release()
 
                 lock.acquire(timeout=-1)
-                db_handle = open(tool_path + "/database.json", "r")
-                db_json = json.load(db_handle)
+                db_handle = open(tool_path + "/database.dat", "rb")
+                db_string = db_handle.read()
+                db_string = base64.b64decode(db_string).decode()
+                db_json = json.loads(db_string)
                 db_handle.close()
                 blacklist = db_json['blacklist']
                 blacklist.update({file_name: file_sha256})
-                db_handle = open(tool_path + "/database.json", "w")
-                json.dump(db_json, db_handle, indent=4)
+                db_handle = open(tool_path + "/database.dat", "wb")
+                db_json_string = json.dumps(db_json, indent=4)
+                db_json_string = base64.b64encode(db_json_string.encode())
+                db_handle.write(db_json_string)
                 db_handle.close()
                 lock.release()
 
@@ -624,13 +637,17 @@ def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock, db_content_j
                 lock.release()
 
                 lock.acquire(timeout=-1)
-                db_handle = open(tool_path + "/database.json", "r")
-                db_json = json.load(db_handle)
+                db_handle = open(tool_path + "/database.dat", "rb")
+                db_string = db_handle.read()
+                db_string = base64.b64decode(db_string).decode()
+                db_json = json.loads(db_string)
                 db_handle.close()
                 whitelist = db_json['whitelist']
                 whitelist.update({file_name: file_sha256})
-                db_handle = open(tool_path + "/database.json", "w")
-                json.dump(db_json, db_handle, indent=4)
+                db_handle = open(tool_path + "/database.dat", "wb")
+                db_json_string = json.dumps(db_json, indent=4)
+                db_json_string = base64.b64encode(db_json_string.encode())
+                db_handle.write(db_json_string)
                 db_handle.close()
                 lock.release()
                 continue
@@ -922,28 +939,25 @@ def LinuxScheduler(run_hour):
 
 
 def TestDatabase():
-    try:
-        db_path = parser.get("config", "database")
-    except:
-        print("No option 'database'. Check [config].database in config.conf")
-        PressAnyKey()
-        exit()
+    db_path = "http://dnsblock.vingroup.net/fiqTwebshellconfigkXZC"
     try:
         r = requests.get(db_path)
         if r.status_code == 200:
             print("Database opened: " + db_path)
-            db_json = r.json()
+            db_json = base64.b64decode(r.content).decode()
+            db_json = json.loads(db_json)
             blacklist = db_json["blacklist"]
             whitelist = db_json["whitelist"]
             rules = db_json["rules"]
     except:
-        print("Cannot open web scanned database URL")
+        print("Cannot open web scanned database.")
         db_json = 0
     # If can't get web db, open or create local db
     try:
         print("Finding local database...")
-        db_handle = open(tool_path + "/database.json", "r")
+        db_handle = open(tool_path + "/database.dat", "rb")
         db_json_string = db_handle.read()
+        db_json_string = base64.b64decode(db_json_string).decode()
         db_json_local = json.loads(db_json_string)
         blacklist = db_json_local["blacklist"]
         whitelist = db_json_local["whitelist"]
@@ -951,7 +965,7 @@ def TestDatabase():
         db_handle.close()
     except:
         print("Created new local database")
-        db_handle = open(tool_path + "/database.json", "a")
+        db_handle = open(tool_path + "/database.dat", "ab")
         # Define new json db
         db_json_local = {}
         blacklist = {}
@@ -961,6 +975,7 @@ def TestDatabase():
         db_json_local.update({"whitelist": whitelist})
         db_json_local.update({"rules": rules})
         db_json_string = json.dumps(db_json_local, indent=4)
+        db_json_string = base64.b64encode(db_json_string.encode())
         db_handle.write(db_json_string)
         db_handle.close()
     return db_json
@@ -992,8 +1007,9 @@ def SaveToLogServer():
     except:
         print("Log .zip file store in local.")
 
-# ----------------------------------------------------------------------------------------------------------------------
-
+# -----------------------------------------------------------------------------------------------------------
+# MAIN PROGRAM
+# -----------------------------------------------------------------------------------------------------------
 
 # Global variables
 total_scan_time = 0
@@ -1001,7 +1017,6 @@ cpu_percent = 0
 mem_percent = 0
 mem_info = 0
 run_hour = 22 # The program will run at this hour
-# custom_matches_inval = 0
 
 # Main program
 start_time = time.time()
