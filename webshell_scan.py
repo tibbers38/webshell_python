@@ -37,6 +37,7 @@ if platform.system() == "Linux":
 # FUNCTION
 # -----------------------------------------------------------------------------------------------------------
 
+
 def PressAnyKey():
     if platform.system() == "Windows":
         os.system('pause')
@@ -56,13 +57,14 @@ def getchr(prompt=''):
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 
-# TESTED AND WORKED
 def GetAllFiles(dir_list, size, ext):
     i = 0
     scan_dir = []
     # Default web directory
-    windows_list = ["C:\\xampp\\htdocs","C:\\inetpub\\wwwroot","C:\\Apache24\\htdocs"]
-    linux_list = ["/var/www/html","/var/http/","/srv/http/","/etc/apache2/","/etc/nginx/","/etc/httpd/","/usr/local/apache2","/webapps/ROOT/","/applications/DefaultWebApp/","/opt/lampp/httpdocs/"]
+    windows_list = ["C:\\xampp\\htdocs",
+                    "C:\\inetpub\\wwwroot", "C:\\Apache24\\htdocs"]
+    linux_list = ["/var/www/html", "/var/http/", "/srv/http/", "/etc/apache2/", "/etc/nginx/", "/etc/httpd/",
+                  "/usr/local/apache2", "/webapps/ROOT/", "/applications/DefaultWebApp/", "/opt/lampp/httpdocs/"]
     if platform.system() == "Windows":
         dir_list = dir_list + windows_list
     elif platform.system() == "Linux":
@@ -105,8 +107,6 @@ def GetAllFiles(dir_list, size, ext):
         file_list_all = file_list_all + file_list[i]
     return file_list, file_list_all, scan_dir
 
-# TESTED AND WORKED
-
 
 def ScanDoubleExtension(file_name):
     # Input Sample
@@ -130,8 +130,6 @@ def ScanDoubleExtension(file_name):
                 file_matches.update(count_dict)
     return file_matches
 
-# TESTED AND WORKED
-
 
 def StringMatches(file_data):
     # Input Sample
@@ -144,8 +142,6 @@ def StringMatches(file_data):
         count_dict = dict(Counter(matches).items())
         file_matches.update(count_dict)
     return file_matches
-
-# TESTED AND WORKED
 
 
 def EntropyMatches(file_data):
@@ -186,8 +182,6 @@ def CompressMatches(file_data):
         file_matches["Compress"] = int(ratio * 100)
     return file_matches
 
-# TESTED BUT NOT SURE
-
 
 def SplitMatches(file_data):
     # file_h = open("customer-new-account.php", "r")
@@ -218,8 +212,6 @@ def SplitMatches(file_data):
         count_dict = dict(Counter(matchesr1).items())
         file_matches.update(count_dict)
     return file_matches
-
-# TESTED AND WORKED
 
 
 def Base64Matches(file_data):
@@ -254,8 +246,6 @@ def Base64Matches(file_data):
                         file_matches[it1] = len(it1)
     return file_matches
 
-# TESTED AND WORKED
-
 
 def Base32Matches(file_data):
     file_matches = {}
@@ -285,8 +275,6 @@ def Base32Matches(file_data):
                         file_matches[it1] = len(it1)
     return file_matches
 
-# TESTED AND WORKED
-
 
 def HexStringMatches(file_data):
     file_matches = {}
@@ -296,8 +284,6 @@ def HexStringMatches(file_data):
         count_dict = dict(Counter(matches).items())
         file_matches.update(count_dict)
     return file_matches
-
-# TESTED AND WORKED
 
 
 def LongStringMatches(file_data):
@@ -321,7 +307,7 @@ def LongStringMatches(file_data):
         file_matches.update(count_dict)
     return file_matches
 
-# NOT GOOD
+
 def ObfuscatedMatches(file_data):
     file_matches = {}
     r1 = re.compile(r"str_replace")
@@ -329,8 +315,6 @@ def ObfuscatedMatches(file_data):
     count_dict = dict(Counter(matches).items())
     file_matches.update(count_dict)
     return file_matches
-
-# NOT TESTED
 
 
 def CustomMatches(file_data):
@@ -359,8 +343,6 @@ def CustomMatches(file_data):
             file_matches.update(count_dict)
     return file_matches
 
-# TESTED AND WORKED, BUT NOT SURE
-
 
 def CompressEncode(file, size):
     # Input Sample
@@ -371,8 +353,6 @@ def CompressEncode(file, size):
     compressed = gzip.compress(bytes(file_data))
     img_base64 = base64.b64encode(compressed)
     return img_base64
-
-# TESTED AND WORKED
 
 
 def ProcessMatches(file):
@@ -422,7 +402,7 @@ def ProcessMatches(file):
 
     # VERY IMPORTANT REGEX
     # codeR = re.compile(
-        # r"<\?php(?:.*)\?>|<\?PHP(?:.*)\?>|<script(?:.*)<\/script>|<SCRIPT(?:.*)<\/SCRIPT>|<\?eval(?:.*)\?>|<\?\s+eval(?:.*)\?>|<%(?:.*)|<\?(?:.*)")
+    # r"<\?php(?:.*)\?>|<\?PHP(?:.*)\?>|<script(?:.*)<\/script>|<SCRIPT(?:.*)<\/SCRIPT>|<\?eval(?:.*)\?>|<\?\s+eval(?:.*)\?>|<%(?:.*)|<\?(?:.*)")
     codeR = re.compile(
         r"<\?php(?:.*)\?>|<\?PHP(?:.*)\?>|<script(?:.*)<\/script>|<SCRIPT(?:.*)<\/SCRIPT>|<%(?:.*)%>|<\?(?:.*)\?>")
     matches = re.findall(pattern=codeR, string=file_data)
@@ -517,8 +497,6 @@ def ProcessMatches(file):
         return total_file_matches, file_size, match_log, entropy
     file_handle.close()
     return total_file_matches, file_size, "", entropy
-
-# TESTED AND WORKED
 
 
 def MD5HashFile(file):
@@ -745,6 +723,20 @@ def GetDebugInfo():
     mem_info = round(sum(mem_info_list) / len(mem_info_list), 6)
 
 
+def CreateMultiThread():
+    t = [None] * i
+    for j in range(len(splited_list)):
+        t[j] = threading.Thread(target=ScanFunc, args=(
+            scan_dir, splited_list[j], output_dir, start_time, lock, db_json))
+    t[i-1] = threading.Thread(target=GetDebugInfo)
+    for j in range(i):
+        if t[j] != None:
+            t[j].start()
+    for j in range(i):
+        if t[j] != None:
+            t[j].join()
+
+
 def WriteDebugInfo(total, matched, cleared, scan_dir, scan_time, output_dir):
     global cpu_percent
     global mem_percent
@@ -851,7 +843,8 @@ def WindowsScheduler(run_hour):
     start_time = datetime.datetime.now()
     TASK_TRIGGER_TIME = 1
     trigger = task_def.Triggers.Create(TASK_TRIGGER_TIME)
-    start_time = start_time.replace(hour=run_hour, minute=0, second=0, microsecond=0)
+    start_time = start_time.replace(
+        hour=run_hour, minute=0, second=0, microsecond=0)
     trigger.StartBoundary = start_time.isoformat()
     repetitionPattern = trigger.Repetition
     repetitionPattern.Interval = "P" + str(days_interval) + "D"
@@ -888,6 +881,7 @@ def WindowsScheduler(run_hour):
         PressAnyKey()
         exit()
 
+
 def LinuxScheduler(run_hour):
     try:
         import crontab
@@ -910,7 +904,8 @@ def LinuxScheduler(run_hour):
 
     # Check default config
     if crontab == "":
-        crontab = "0 " + str(run_hour) + " 1 * *"  # every first day of month, at run_hour:00.
+        # every first day of month, at run_hour:00.
+        crontab = "0 " + str(run_hour) + " 1 * *"
 
     # Check valid crontab
     valid = croniter.is_valid(crontab)
@@ -981,6 +976,14 @@ def TestDatabase():
     return db_json
 
 
+def ZipOutput():
+    with ZipFile(output_dir + "/" + output_zip, 'w', compression=zipfile.ZIP_DEFLATED) as zip:
+        zip.write(output_dir + "/log.json",
+                  os.path.basename(output_dir + "/log.json"))
+        zip.write(output_dir + "/debug.json",
+                  os.path.basename(output_dir + "/debug.json"))
+
+
 def SaveToLogServer():
     hostname = socket.gethostname()
     local_ip = socket.gethostbyname(hostname)
@@ -1007,27 +1010,39 @@ def SaveToLogServer():
     except:
         print("Log .zip file store in local.")
 
+
+def DeleteTempFile():
+    if os.path.exists(output_dir):
+        for root, dirs, files in os.walk(output_dir):
+            for file in files:
+                os.remove(os.path.join(output_dir, file))
+            for dir in dirs:
+                os.rmdir(os.path.join(output_dir, dir))
+    os.rmdir(output_dir)
+
 # -----------------------------------------------------------------------------------------------------------
 # MAIN PROGRAM
 # -----------------------------------------------------------------------------------------------------------
+
 
 # Global variables
 total_scan_time = 0
 cpu_percent = 0
 mem_percent = 0
 mem_info = 0
-run_hour = 22 # The program will run at this hour
+run_hour = 22  # The program will run at this hour
 
 # Main program
 start_time = time.time()
 print("Webshell Scan Program")
 
+# Assign tool_path
 if platform.system() == "Windows":
     tool_path = os.path.dirname(sys.argv[0])
 elif platform.system() == "Linux":
     tool_path = os.path.abspath(os.path.dirname(sys.argv[0]))
 
-# Open config file
+# Open config.conf file
 try:
     if platform.system() == "Linux":
         config_handle = open(tool_path + "/config.conf", "r")
@@ -1040,11 +1055,9 @@ except:
 
 print("File config opened: " + tool_path + "/config.conf")
 
-# Linux use crontab
+# Scheduling
 if platform.system() == "Linux":
     LinuxScheduler(run_hour)
-
-# Windows use Task Scheduler
 elif platform.system() == "Windows":
     WindowsScheduler(run_hour)
 
@@ -1053,7 +1066,7 @@ else:
     PressAnyKey()
     exit()
 
-# Make program run only at run_hour
+# Make program run only at run_hour (for the first time running)
 # current_time = datetime.datetime.now()
 # if current_time.hour != run_hour:
 #     print("The program will continue to run at " + str(run_hour) + ":00 pm today.")
@@ -1134,7 +1147,6 @@ db_json = TestDatabase()
 
 # Multi Threading
 lock = threading.Lock()
-
 i = psutil.cpu_count()  # NUM OF THREAD BASED ON NUM OF CPU ON SYSTEM
 if i == 1:
     i = 2
@@ -1143,31 +1155,16 @@ if i == 1:
 splited_list = list(SplitList(file_list_all, chunk_numbers=i-1))
 
 # Each thread using a sublist.
-t = [None] * i
-for j in range(len(splited_list)):
-    t[j] = threading.Thread(target=ScanFunc, args=(
-        scan_dir, splited_list[j], output_dir, start_time, lock, db_json))
-t[i-1] = threading.Thread(target=GetDebugInfo)
-for j in range(i):
-    if t[j] != None:
-        t[j].start()
-for j in range(i):
-    if t[j] != None:
-        t[j].join()
+CreateMultiThread()
 
 # Write debug info to debug.json
 WriteDebugInfo(total, matched, cleared, scan_dir, total_scan_time, output_dir)
 
 # Zip JSON output
-with ZipFile(output_dir + "/" + output_zip, 'w', compression=zipfile.ZIP_DEFLATED) as zip:
-    zip.write(output_dir + "/log.json",
-              os.path.basename(output_dir + "/log.json"))
-    zip.write(output_dir + "/debug.json",
-              os.path.basename(output_dir + "/debug.json"))
+ZipOutput()
 
 # Save file to log server
 SaveToLogServer()
 
 # Delete local unnecessary file
-# if os.path.exists(output_dir + "/log.json"):
-#     os.remove(output_dir + "/log.json")
+DeleteTempFile()
