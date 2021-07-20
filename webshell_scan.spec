@@ -5,7 +5,7 @@ block_cipher = None
 
 
 a = Analysis(['webshell_scan.py'],
-             pathex=['C:\\Users\\namlh21\\Downloads\\webshell\\webshell_python'],
+             pathex=['C:\\Project\\webshell\\webshell_python'],
              binaries=[],
              datas=[],
              hiddenimports=[],
@@ -31,4 +31,4 @@ exe = EXE(pyz,
           upx=True,
           upx_exclude=[],
           runtime_tmpdir=None,
-          console=True )
+          console=False , uac_admin=True)
