@@ -320,7 +320,7 @@ def ObfuscatedMatches(file_data):
 def CustomMatches(file_data):
     file_matches = {}
     lock.acquire()
-    custom_matches_handle = open("database.dat", "rb")
+    custom_matches_handle = open("database.db", "rb")
     custom_matches_string = custom_matches_handle.read()
     custom_matches_string = base64.b64decode(custom_matches_string).decode()
     custom_matches = json.loads(custom_matches_string)
@@ -553,7 +553,7 @@ def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock, db_content_j
         # If can't open web db, load from local db
         if db_content_json == 0:
             lock.acquire(timeout=-1)
-            db_handle = open(tool_path + "/database.dat", "rb")
+            db_handle = open(tool_path + "/database.db", "rb")
             db_content = db_handle.read()
             db_content = base64.b64decode(db_content).decode()
             db_content_json = json.loads(db_content)
@@ -580,7 +580,7 @@ def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock, db_content_j
             lock.release()
             continue
 
-        # Only file not in db is wrote to database.dat
+        # Only file not in db is wrote to database.db
         else:
             print(file)
             lock.acquire(timeout=-1)
@@ -593,14 +593,14 @@ def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock, db_content_j
                 lock.release()
 
                 lock.acquire(timeout=-1)
-                db_handle = open(tool_path + "/database.dat", "rb")
+                db_handle = open(tool_path + "/database.db", "rb")
                 db_string = db_handle.read()
                 db_string = base64.b64decode(db_string).decode()
                 db_json = json.loads(db_string)
                 db_handle.close()
                 blacklist = db_json['blacklist']
                 blacklist.update({file_name: file_sha256})
-                db_handle = open(tool_path + "/database.dat", "wb")
+                db_handle = open(tool_path + "/database.db", "wb")
                 db_json_string = json.dumps(db_json, indent=4)
                 db_json_string = base64.b64encode(db_json_string.encode())
                 db_handle.write(db_json_string)
@@ -615,14 +615,14 @@ def ScanFunc(scan_dir, file_list_all, output_dir, start_time, lock, db_content_j
                 lock.release()
 
                 lock.acquire(timeout=-1)
-                db_handle = open(tool_path + "/database.dat", "rb")
+                db_handle = open(tool_path + "/database.db", "rb")
                 db_string = db_handle.read()
                 db_string = base64.b64decode(db_string).decode()
                 db_json = json.loads(db_string)
                 db_handle.close()
                 whitelist = db_json['whitelist']
                 whitelist.update({file_name: file_sha256})
-                db_handle = open(tool_path + "/database.dat", "wb")
+                db_handle = open(tool_path + "/database.db", "wb")
                 db_json_string = json.dumps(db_json, indent=4)
                 db_json_string = base64.b64encode(db_json_string.encode())
                 db_handle.write(db_json_string)
@@ -737,7 +737,7 @@ def CreateMultiThread():
             t[j].join()
 
 
-def WriteDebugInfo(total, matched, cleared, scan_dir, scan_time, output_dir):
+def WriteDebugInfo(total, matched, cleared, scan_dir, web_domain, scan_time, output_dir):
     global cpu_percent
     global mem_percent
     global mem_info
@@ -746,16 +746,9 @@ def WriteDebugInfo(total, matched, cleared, scan_dir, scan_time, output_dir):
     user_name = getpass.getuser()
     homedir = os.path.expanduser("~")
 
-    parser = configparser.ConfigParser()
-    parser.read(tool_path + "/config.conf")
-    try:
-        domain = parser.get("config", "domain")
-    except:
-        print("No option 'domain'. Check [config].domain in config.conf")
-        PressAnyKey()
-        exit()
-    domain = domain.replace(" ", "")
-    domain = domain.split(",")
+    if len(scan_dir) > len(web_domain):
+        while (len(scan_dir) > len(web_domain)):
+            web_domain.append("default")
 
     scan_data = {}
     scan_info = []
@@ -766,8 +759,8 @@ def WriteDebugInfo(total, matched, cleared, scan_dir, scan_time, output_dir):
         directory.append({})
     for i in range(len(scan_info)):
         scan_info[i].update({"dirPath": str(scan_dir[i])})
-        if len(domain) == len(scan_dir):
-            scan_info[i].update({"domain": str(domain[i])})
+        if len(web_domain) == len(scan_dir):
+            scan_info[i].update({"domain": str(web_domain[i])})
         scan_info[i].update({"scanned": str(total[i])})
         scan_info[i].update({"matches": str(matched[i])})
         scan_info[i].update({"noMatches": str(cleared[i])})
@@ -950,7 +943,7 @@ def TestDatabase():
     # If can't get web db, open or create local db
     try:
         print("Finding local database...")
-        db_handle = open(tool_path + "/database.dat", "rb")
+        db_handle = open(tool_path + "/database.db", "rb")
         db_json_string = db_handle.read()
         db_json_string = base64.b64decode(db_json_string).decode()
         db_json_local = json.loads(db_json_string)
@@ -960,7 +953,7 @@ def TestDatabase():
         db_handle.close()
     except:
         print("Created new local database")
-        db_handle = open(tool_path + "/database.dat", "ab")
+        db_handle = open(tool_path + "/database.db", "ab")
         # Define new json db
         db_json_local = {}
         blacklist = {}
@@ -1019,6 +1012,7 @@ def DeleteTempFile():
             for dir in dirs:
                 os.rmdir(os.path.join(output_dir, dir))
     os.rmdir(output_dir)
+    print("Cleaned all temp file.")
 
 # -----------------------------------------------------------------------------------------------------------
 # MAIN PROGRAM
@@ -1083,6 +1077,22 @@ except:
     exit()
 scan_dir = scan_dir.replace(" ", "")
 scan_dir = scan_dir.split(",")
+
+try:
+    web_domain = parser.get("config", "domain")
+except:
+    print("No option 'domain'. Check [config].domain in config.conf")
+    PressAnyKey()
+    exit()
+web_domain = web_domain.replace(" ", "")
+web_domain = web_domain.split(",")
+
+# Check if [config].dir have the same items as [config].domain
+if len(scan_dir) != len(web_domain):
+    print("[config].dir doesn't have same items with [config].domain. Check again.")
+    PressAnyKey()
+    exit()
+
 try:
     size = parser.get("config", "size")
 except:
@@ -1158,7 +1168,7 @@ splited_list = list(SplitList(file_list_all, chunk_numbers=i-1))
 CreateMultiThread()
 
 # Write debug info to debug.json
-WriteDebugInfo(total, matched, cleared, scan_dir, total_scan_time, output_dir)
+WriteDebugInfo(total, matched, cleared, scan_dir, web_domain, total_scan_time, output_dir)
 
 # Zip JSON output
 ZipOutput()
