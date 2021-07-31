@@ -65,14 +65,14 @@ def GetAllFiles(dir_list, size, ext):
                     "C:\\inetpub\\wwwroot", "C:\\Apache24\\htdocs"]
     linux_list = ["/var/www/html", "/var/http/", "/srv/http/", "/etc/apache2/", "/etc/nginx/", "/etc/httpd/",
                   "/usr/local/apache2", "/webapps/ROOT/", "/applications/DefaultWebApp/", "/opt/lampp/httpdocs/"]
-    # if platform.system() == "Windows":
-    #     dir_list = dir_list + windows_list
-    # elif platform.system() == "Linux":
-    #     dir_list = dir_list + linux_list
-    # else:
-    #     print("Unsupported OS. Exit")
-    #     PressAnyKey()
-    #     exit()
+    if platform.system() == "Windows":
+        dir_list = dir_list + windows_list
+    elif platform.system() == "Linux":
+        dir_list = dir_list + linux_list
+    else:
+        print("Unsupported OS. Exit")
+        PressAnyKey()
+        exit()
 
     for dir_path in dir_list:
         if os.path.isdir(dir_path):
@@ -1077,6 +1077,8 @@ except:
     PressAnyKey()
     exit()
 scan_dir = scan_dir.split(",")
+for i in range(len(scan_dir)):
+    scan_dir[i] = scan_dir[i].strip()
 
 try:
     web_domain = parser.get("config", "domain")
@@ -1084,8 +1086,9 @@ except:
     print("No option 'domain'. Check [config].domain in config.conf")
     PressAnyKey()
     exit()
-web_domain = web_domain.replace(" ", "")
 web_domain = web_domain.split(",")
+for i in range(len(web_domain)):
+    web_domain[i] = web_domain[i].strip()
 
 # Check if [config].dir have the same items as [config].domain
 if len(scan_dir) != len(web_domain):
