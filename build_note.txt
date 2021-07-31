@@ -1,0 +1,36 @@
+webshell_scan.exe:
+	Windows 10 x64 (Version 1903, OS Build 18362.1256)
+	Python 3.9.6 (tags/v3.9.6:db3ff76, Jun 28 2021, 15:26:21) [MSC v.1929 64 bit (AMD64)] on win32
+webshell_scan:
+	Kali Linux
+	PRETTY_NAME="Kali GNU/Linux Rolling"
+	NAME="Kali GNU/Linux"
+	ID=kali
+	VERSION="2021.2"
+	VERSION_ID="2021.2"
+	VERSION_CODENAME="kali-rolling"
+	ID_LIKE=debian
+	ANSI_COLOR="1;31"
+	HOME_URL="https://www.kali.org/"
+	SUPPORT_URL="https://forums.kali.org/"
+	BUG_REPORT_URL="https://bugs.kali.org/"
+	Python 3.9.2 (default, Feb 28 2021, 17:03:44) [GCC 10.2.1 20210110] on linux
+webshell_scan_centos7:
+	NAME="CentOS Linux"
+	VERSION="7 (Core)"
+	ID="centos"
+	ID_LIKE="rhel fedora"
+	VERSION_ID="7"
+	PRETTY_NAME="CentOS Linux 7 (Core)"
+	ANSI_COLOR="0;31"
+	CPE_NAME="cpe:/o:centos:centos:7"
+	HOME_URL="https://www.centos.org/"
+	BUG_REPORT_URL="https://bugs.centos.org/"
+	CENTOS_MANTISBT_PROJECT="CentOS-7"
+	CENTOS_MANTISBT_PROJECT_VERSION="7"
+	REDHAT_SUPPORT_PRODUCT="centos"
+	REDHAT_SUPPORT_PRODUCT_VERSION="7"
+	Python 3.6.8 (default, Nov 16 2020, 16:55:22) [GCC 4.8.5 20150623 (Red Hat 4.8.5-44)] on linux
+webshell_scan_winserver2008:
+	Windows Server 2008 R2
+	Python 3.8.10

@@ -1,0 +1,5 @@
+configparser
+pysmb
+requests
+psutil
+pywin32

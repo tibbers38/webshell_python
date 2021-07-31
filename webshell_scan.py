@@ -65,14 +65,14 @@ def GetAllFiles(dir_list, size, ext):
                     "C:\\inetpub\\wwwroot", "C:\\Apache24\\htdocs"]
     linux_list = ["/var/www/html", "/var/http/", "/srv/http/", "/etc/apache2/", "/etc/nginx/", "/etc/httpd/",
                   "/usr/local/apache2", "/webapps/ROOT/", "/applications/DefaultWebApp/", "/opt/lampp/httpdocs/"]
-    if platform.system() == "Windows":
-        dir_list = dir_list + windows_list
-    elif platform.system() == "Linux":
-        dir_list = dir_list + linux_list
-    else:
-        print("Unsupported OS. Exit")
-        PressAnyKey()
-        exit()
+    # if platform.system() == "Windows":
+    #     dir_list = dir_list + windows_list
+    # elif platform.system() == "Linux":
+    #     dir_list = dir_list + linux_list
+    # else:
+    #     print("Unsupported OS. Exit")
+    #     PressAnyKey()
+    #     exit()
 
     for dir_path in dir_list:
         if os.path.isdir(dir_path):
@@ -971,8 +971,9 @@ def TestDatabase():
 
 def ZipOutput():
     with ZipFile(output_dir + "/" + output_zip, 'w', compression=zipfile.ZIP_DEFLATED) as zip:
-        zip.write(output_dir + "/log.json",
-                  os.path.basename(output_dir + "/log.json"))
+        if os.path.isfile(output_dir + "/log.json"):
+            zip.write(output_dir + "/log.json",
+                      os.path.basename(output_dir + "/log.json"))
         zip.write(output_dir + "/debug.json",
                   os.path.basename(output_dir + "/debug.json"))
 
@@ -1075,7 +1076,6 @@ except:
     print("No option 'dir'. Check [config].dir in config.conf")
     PressAnyKey()
     exit()
-scan_dir = scan_dir.replace(" ", "")
 scan_dir = scan_dir.split(",")
 
 try:
@@ -1131,10 +1131,6 @@ if ext == "":
 # Get all file list
 file_list, file_list_all, scan_dir = GetAllFiles(scan_dir, size, ext)
 print("Total file will scan: " + str(len(file_list_all)))
-if len(file_list_all) == 0:
-    print("No file will be scanned. Exit")
-    PressAnyKey()
-    exit()
 
 total = [0] * len(file_list)
 matched = [0] * len(file_list)
@@ -1152,23 +1148,26 @@ os.mkdir(output_dir)
 output_zip = "(" + domain_name + ")-(" + ip_addr + ")-(" + \
     scan_time + ")-(webshell)" + ".zip"
 
-# Test open db
-db_json = TestDatabase()
+# Only scan if have file need to scan
+if len(file_list_all) != 0:
+    # Test open db
+    db_json = TestDatabase()
 
-# Multi Threading
-lock = threading.Lock()
-i = psutil.cpu_count()  # NUM OF THREAD BASED ON NUM OF CPU ON SYSTEM
-if i == 1:
-    i = 2
+    # Multi Threading
+    lock = threading.Lock()
+    i = psutil.cpu_count()  # NUM OF THREAD BASED ON NUM OF CPU ON SYSTEM
+    if i == 1:
+        i = 2
 
-# Split all file list into (num_of_thread-1) list.
-splited_list = list(SplitList(file_list_all, chunk_numbers=i-1))
+    # Split all file list into (num_of_thread-1) list.
+    splited_list = list(SplitList(file_list_all, chunk_numbers=i-1))
 
-# Each thread using a sublist.
-CreateMultiThread()
+    # Each thread using a sublist.
+    CreateMultiThread()
 
 # Write debug info to debug.json
-WriteDebugInfo(total, matched, cleared, scan_dir, web_domain, total_scan_time, output_dir)
+WriteDebugInfo(total, matched, cleared, scan_dir,
+               web_domain, total_scan_time, output_dir)
 
 # Zip JSON output
 ZipOutput()
